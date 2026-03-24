@@ -194,7 +194,7 @@ export const LandingPage = () => {
         <div>
           <h4 className="text-sm font-bold">Avasar Patra</h4>
           <p className="text-sm text-muted">A cleaner procurement workflow for local vendors and SMEs.</p>
-          <p className="mt-1 text-xs text-slate-500">Copyright iFISAN Tech</p>
+          <p className="mt-1 text-xs text-slate-500">Copyright InFISAN Tech</p>
         </div>
         <div className="flex flex-wrap gap-2 text-xs">
           <a href="#how-it-works" className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-slate-600">How It Works</a>

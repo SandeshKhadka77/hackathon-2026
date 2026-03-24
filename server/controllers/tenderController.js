@@ -28,6 +28,38 @@ const toSafeFilename = (value) =>
     .replace(/^-+|-+$/g, '')
     .slice(0, 60) || 'tender-brief';
 
+const getDecisionPriority = (decision) => {
+  if (decision === 'go') return 3;
+  if (decision === 'hold') return 2;
+  return 1;
+};
+
+const getDeadlineSortValue = (deadlineAt) => {
+  if (!deadlineAt) {
+    return Number.MAX_SAFE_INTEGER;
+  }
+
+  const value = new Date(deadlineAt).getTime();
+  return Number.isNaN(value) ? Number.MAX_SAFE_INTEGER : value;
+};
+
+const sortPersonalizedItems = (items = []) =>
+  [...items].sort((a, b) => {
+    const decisionDiff =
+      getDecisionPriority(b.insight?.recommendation?.decision) -
+      getDecisionPriority(a.insight?.recommendation?.decision);
+    if (decisionDiff !== 0) {
+      return decisionDiff;
+    }
+
+    const matchDiff = Number(b.matchPercent || 0) - Number(a.matchPercent || 0);
+    if (matchDiff !== 0) {
+      return matchDiff;
+    }
+
+    return getDeadlineSortValue(a.deadlineAt) - getDeadlineSortValue(b.deadlineAt);
+  });
+
 const listTenders = async (req, res) => {
   try {
     const { q = '', category, district, page = 1, limit = 20 } = req.query;
@@ -58,25 +90,48 @@ const listTenders = async (req, res) => {
     const pageNumber = Math.max(1, Number(page) || 1);
     const pageSize = Math.min(50, Math.max(1, Number(limit) || 20));
 
-    const [items, total] = await Promise.all([
-      Tender.find(query)
+    const total = await Tender.countDocuments(query);
+
+    let mapped = [];
+
+    if (req.user) {
+      // Personalized feed should rank best-fit opportunities first, then paginate the ranked list.
+      const rankingLimit = Math.max(pageNumber * pageSize, 200);
+      const items = await Tender.find(query)
+        .sort({ deadlineAt: 1, createdAt: -1 })
+        .limit(rankingLimit);
+
+      const scored = items.map((item) => {
+        const tender = item.toObject();
+        const insight = buildMatchInsights(tender, req.user);
+
+        return {
+          ...tender,
+          matchPercent: insight.matchPercent,
+          checklist: getChecklistForCategory(tender.category),
+          insight,
+        };
+      });
+
+      const ranked = sortPersonalizedItems(scored);
+      mapped = ranked.slice((pageNumber - 1) * pageSize, pageNumber * pageSize);
+    } else {
+      const items = await Tender.find(query)
         .sort({ deadlineAt: 1, createdAt: -1 })
         .skip((pageNumber - 1) * pageSize)
-        .limit(pageSize),
-      Tender.countDocuments(query),
-    ]);
+        .limit(pageSize);
 
-    const mapped = items.map((item) => {
-      const tender = item.toObject();
-      const insight = req.user ? buildMatchInsights(tender, req.user) : null;
+      mapped = items.map((item) => {
+        const tender = item.toObject();
 
-      return {
-        ...tender,
-        matchPercent: req.user ? insight.matchPercent : 0,
-        checklist: getChecklistForCategory(tender.category),
-        insight,
-      };
-    });
+        return {
+          ...tender,
+          matchPercent: 0,
+          checklist: getChecklistForCategory(tender.category),
+          insight: null,
+        };
+      });
+    }
 
     return res.json({
       items: mapped,
