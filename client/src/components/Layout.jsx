@@ -1,19 +1,22 @@
-import { ArrowLeft, BarChart3, Bell, Bookmark, ClipboardCheck, FileText, Home, LogOut, ShieldCheck } from 'lucide-react';
+import { ArrowLeft, BarChart3, Bell, Bookmark, BriefcaseBusiness, ClipboardCheck, FileText, Home, LogOut, ShieldCheck } from 'lucide-react';
+import { useEffect, useState } from 'react';
 import { Link, NavLink, useLocation, useNavigate } from 'react-router-dom';
+import api from '../api/client';
 import { useAuth } from '../hooks/useAuth';
+import { DocumentHealth } from './DocumentHealth';
 
 const vendorNavItems = [
   { to: '/dashboard', label: 'Feed', icon: Home },
   { to: '/brief', label: 'Boardroom', icon: BarChart3 },
   { to: '/bookmarks', label: 'Tracked', icon: Bookmark },
   { to: '/operations', label: 'Operations', icon: ClipboardCheck },
+  { to: '/jv', label: 'JV Desk', icon: BriefcaseBusiness },
   { to: '/vault', label: 'Document Vault', icon: FileText },
   { to: '/notifications', label: 'Alerts', icon: Bell },
 ];
 
 const organizationNavItems = [
   { to: '/organization', label: 'Publisher Portal', icon: FileText },
-  { to: '/notifications', label: 'Alerts', icon: Bell },
 ];
 
 const linkClassName = ({ isActive }) =>
@@ -78,12 +81,38 @@ const calculateBidReadyScore = (documents = {}) => {
   return Math.max(0, Math.min(100, Math.round(score)));
 };
 
+const getNextBestAction = (pipeline) => {
+  if (!pipeline) {
+    return 'Track a live notice from Tender Feed to start your active pipeline.';
+  }
+
+  const hasEstimate = pipeline?.estimate && Number(pipeline.estimatedTotal || 0) > 0;
+  if (!hasEstimate) {
+    return 'Complete Bid Security, Materials, and Site Visit costing to unlock execution.';
+  }
+
+  if (!(pipeline.assignments || []).length || (pipeline.assignmentProgress || 0) < 100) {
+    return 'Assign execution tasks and sync updates to your WhatsApp ops group.';
+  }
+
+  if (!pipeline.outcome || pipeline.outcome.result === 'pending') {
+    return 'Capture final bid outcome and learning for throughput analytics.';
+  }
+
+  return 'Pipeline closed. Move to the next high-match procurement notice.';
+};
+
 export const Layout = ({ children }) => {
   const { user, logout } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
   const bidReadyScore = calculateBidReadyScore(user?.documents || {});
   const navItems = user?.role === 'organization' ? organizationNavItems : vendorNavItems;
+  const [pipelineSnapshot, setPipelineSnapshot] = useState({
+    trackedCount: 0,
+    activePipeline: null,
+    nextAction: 'Track a live notice from Tender Feed to start your active pipeline.',
+  });
 
   const homePath = user?.role === 'organization' ? '/organization' : '/dashboard';
   const showBackButton = location.pathname !== homePath;
@@ -97,8 +126,46 @@ export const Layout = ({ children }) => {
     navigate(homePath);
   };
 
+  useEffect(() => {
+    if (user?.role === 'organization' || user?.role === 'admin') {
+      return;
+    }
+
+    let cancelled = false;
+    (async () => {
+      try {
+        const response = await api.get('/operations/board');
+        if (cancelled) {
+          return;
+        }
+
+        const tracked = response.data?.trackedTenders || [];
+        const pipelines = response.data?.pipelines || [];
+        const activePipeline = pipelines[0] || null;
+        setPipelineSnapshot({
+          trackedCount: tracked.length,
+          activePipeline,
+          nextAction: getNextBestAction(activePipeline),
+        });
+      } catch {
+        if (!cancelled) {
+          setPipelineSnapshot((prev) => ({
+            ...prev,
+            nextAction: 'Could not load active pipeline. Open Operations Workspace to continue execution.',
+          }));
+        }
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [location.pathname, user?.role]);
+
+  const mobileTabs = navItems.slice(0, 5);
+
   return (
-    <div className="mx-auto max-w-7xl px-4 py-4 md:px-6">
+    <div className="mx-auto max-w-[1600px] px-4 py-4 pb-24 md:px-6 md:pb-8">
       <header className="card sticky top-3 z-30 grid grid-cols-1 items-center gap-3 px-4 py-3 md:grid-cols-[auto_1fr_auto]">
         <div className="flex items-center gap-2">
           {showBackButton ? (
@@ -126,8 +193,8 @@ export const Layout = ({ children }) => {
         </div>
       </header>
 
-      <div className="mt-4 grid gap-4 lg:grid-cols-[250px_1fr]">
-        <aside className="card h-max p-3 lg:sticky lg:top-24">
+      <div className="mt-4 grid gap-4 lg:grid-cols-[240px_minmax(0,1fr)_320px]">
+        <aside className="card hidden h-max p-3 lg:sticky lg:top-24 lg:block">
           <div className="mb-3 rounded-xl bg-slate-50 p-3">
             <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Navigation</p>
             <h2 className="mt-1 text-lg font-bold">{user?.role === 'organization' ? 'Publishing' : 'Dashboard'}</h2>
@@ -140,7 +207,7 @@ export const Layout = ({ children }) => {
                 <p className="mt-1 text-xs font-semibold text-slate-700">{bidReadyScore}%</p>
               </div>
             ) : (
-              <p className="mt-2 text-xs text-slate-600">Publish private tenders and reach verified vendors.</p>
+              <p className="mt-2 text-xs text-slate-600">Publish private-sector procurement notices to verified vendors.</p>
             )}
           </div>
 
@@ -170,6 +237,28 @@ export const Layout = ({ children }) => {
         </aside>
 
         <main className="space-y-4">
+          {user?.role !== 'organization' && user?.role !== 'admin' ? (
+            <section className="card p-4">
+              <div className="grid gap-3 md:grid-cols-[1fr_auto] md:items-start">
+                <div>
+                  <p className="text-xs font-semibold uppercase tracking-wide text-brand-700">Active Pipeline</p>
+                  <h3 className="mt-1 text-base font-bold text-slate-900">{pipelineSnapshot.activePipeline?.tender?.title || 'No active procurement notice selected'}</h3>
+                  <p className="mt-1 text-xs text-slate-500">
+                    {pipelineSnapshot.activePipeline?.tender?.tenderId || 'Track a notice from Tender Feed to activate pipeline.'}
+                  </p>
+                </div>
+                <div className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-right">
+                  <p className="text-[11px] uppercase tracking-wide text-slate-500">Tracked Notices</p>
+                  <p className="text-lg font-bold text-brand-700">{pipelineSnapshot.trackedCount}</p>
+                </div>
+              </div>
+              <div className="mt-3 rounded-xl border border-brand-200 bg-brand-50 p-3">
+                <p className="text-xs font-semibold uppercase tracking-wide text-brand-700">Next Best Action</p>
+                <p className="mt-1 text-sm font-semibold text-slate-800">{pipelineSnapshot.nextAction}</p>
+              </div>
+            </section>
+          ) : null}
+
           {children}
 
           <footer className="card flex flex-col justify-between gap-4 p-4 md:flex-row md:items-center">
@@ -184,7 +273,43 @@ export const Layout = ({ children }) => {
             </div>
           </footer>
         </main>
+
+        {user?.role !== 'organization' && user?.role !== 'admin' ? (
+          <aside className="hidden lg:block">
+            <div className="sticky top-24 space-y-3">
+              <article className="card p-4">
+                <div className="flex items-center gap-2">
+                  <BriefcaseBusiness size={16} className="text-brand-700" />
+                  <h3 className="text-sm font-bold">Compliance & Financial Pulse</h3>
+                </div>
+                <p className="mt-2 text-xs text-slate-500">Bid Security and readiness visibility for faster bid submission confidence.</p>
+                <div className="mt-3 rounded-xl border border-slate-200 bg-slate-50 p-3">
+                  <p className="text-[11px] uppercase tracking-wide text-slate-500">Current Bid-Ready</p>
+                  <p className="mt-1 text-xl font-bold text-brand-700">{bidReadyScore}%</p>
+                </div>
+              </article>
+
+              <DocumentHealth />
+            </div>
+          </aside>
+        ) : null}
       </div>
+
+      <nav className="fixed inset-x-0 bottom-0 z-40 border-t border-slate-200 bg-white px-2 py-2 lg:hidden">
+        <div className="mx-auto grid max-w-2xl grid-cols-5 gap-1">
+          {mobileTabs.map((item) => {
+            const IconComponent = item.icon;
+            const active = location.pathname === item.to || (item.to === '/dashboard' && location.pathname.startsWith('/dashboard'));
+
+            return (
+              <NavLink key={item.to} to={item.to} className={`flex flex-col items-center justify-center rounded-xl border px-2 py-1 text-[11px] font-semibold ${active ? 'border-brand-100 bg-brand-50 text-brand-700' : 'border-transparent text-slate-600'}`} end={item.to === '/dashboard'}>
+                <IconComponent size={16} />
+                <span className="mt-0.5 truncate">{item.label}</span>
+              </NavLink>
+            );
+          })}
+        </div>
+      </nav>
     </div>
   );
 };

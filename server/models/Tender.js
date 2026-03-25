@@ -16,7 +16,7 @@ const TenderSchema = new mongoose.Schema(
     procuringEntity: { type: String, default: '', trim: true },
     category: {
       type: String,
-      enum: ['Works', 'Goods', 'Consulting', 'Other'],
+      enum: ['Works', 'Goods', 'Consulting', 'ICT', 'Health & Medical', 'Agriculture', 'Education', 'Energy', 'Services', 'Other'],
       default: 'Other',
       index: true,
     },

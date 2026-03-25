@@ -4,7 +4,7 @@ import { useLocation } from 'react-router-dom';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../hooks/useAuth';
 
-const categories = ['Works', 'Goods', 'Consulting', 'Other'];
+const categories = ['Works', 'Goods', 'Consulting', 'ICT', 'Health & Medical', 'Agriculture', 'Education', 'Energy', 'Services', 'Other'];
 const vendorGroups = ['Small', 'Medium', 'Large', 'Consortium'];
 const organizationTypes = ['Sole Proprietor', 'Private Limited', 'Partnership', 'Cooperative', 'NGO/INGO', 'Other'];
 

@@ -46,6 +46,7 @@ const sanitizeUser = (user) => ({
   expertiseTags: user.expertiseTags || [],
   role: user.role,
   documents: user.documents || {},
+  activeJVBids: user.activeJVBids || [],
   notificationPreferences: user.notificationPreferences || {},
   bookmarks: user.bookmarks || [],
 });

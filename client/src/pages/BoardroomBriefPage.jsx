@@ -14,7 +14,6 @@ export const BoardroomBriefPage = () => {
   const [status, setStatus] = useState('');
   const [items, setItems] = useState([]);
   const [selectedTenderId, setSelectedTenderId] = useState('');
-  const [marketSnapshot, setMarketSnapshot] = useState(null);
   const [simulation, setSimulation] = useState(null);
   const [simulationStatus, setSimulationStatus] = useState('');
   const [simulationError, setSimulationError] = useState('');
@@ -54,26 +53,6 @@ export const BoardroomBriefPage = () => {
       await loadBoardroom();
     })();
   }, []);
-
-  const loadMarketSnapshot = async (tenderId) => {
-    if (!tenderId) return;
-
-    try {
-      const response = await api.get(`/tenders/${tenderId}/market-snapshot`);
-      setMarketSnapshot(response.data || null);
-      setStatus('Market snapshot updated.');
-    } catch (error) {
-      setStatus(error.response?.data?.message || 'Failed to load market snapshot.');
-    }
-  };
-
-  useEffect(() => {
-    if (!selectedTenderId) return;
-
-    (async () => {
-      await loadMarketSnapshot(selectedTenderId);
-    })();
-  }, [selectedTenderId]);
 
   useEffect(() => {
     setSimulation(null);
@@ -147,7 +126,7 @@ export const BoardroomBriefPage = () => {
           <div>
             <p className="text-xs font-semibold uppercase tracking-wide text-brand-700">Executive View</p>
             <h2 className="page-title">Boardroom Brief</h2>
-            <p className="page-subtitle">One screen for recommendation, competition, simulation, and exportable decision brief.</p>
+            <p className="page-subtitle">One screen for recommendation, simulation, and exportable decision brief.</p>
           </div>
           <div className="flex flex-wrap gap-2">
             <button type="button" className="btn-secondary" onClick={loadBoardroom}>Refresh</button>
@@ -189,20 +168,6 @@ export const BoardroomBriefPage = () => {
           </div>
         ) : (
           <p className="mt-3 text-sm text-slate-500">No tender selected.</p>
-        )}
-      </article>
-
-      <article className="card p-4">
-        <h3 className="section-title">Competitor Pressure Snapshot</h3>
-        {marketSnapshot ? (
-          <div className="mt-3 grid gap-3 md:grid-cols-3">
-            <div className="kpi-card"><p className="text-xs text-slate-500">Estimated Competitors</p><p className="text-xl font-bold">{marketSnapshot.estimatedCompetitors}</p></div>
-            <div className="kpi-card"><p className="text-xs text-slate-500">Pressure</p><p className="text-xl font-bold">{marketSnapshot.pressureLevel}</p></div>
-            <div className="kpi-card"><p className="text-xs text-slate-500">Pressure Score</p><p className="text-xl font-bold">{marketSnapshot.pressureScore}%</p></div>
-            <div className="md:col-span-3 rounded-xl border border-slate-200 p-3 text-sm text-slate-700">{marketSnapshot.recommendation}</div>
-          </div>
-        ) : (
-          <p className="mt-3 text-sm text-slate-500">Snapshot not loaded yet.</p>
         )}
       </article>
 

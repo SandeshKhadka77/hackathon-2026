@@ -5,9 +5,6 @@ import api from '../api/client';
 export const TenderModal = ({ tender, onClose }) => {
   const [exporting, setExporting] = useState(false);
   const [exportStatus, setExportStatus] = useState('');
-  const [marketLoading, setMarketLoading] = useState(false);
-  const [marketSnapshot, setMarketSnapshot] = useState(null);
-  const [marketStatus, setMarketStatus] = useState('');
 
   if (!tender) {
     return null;
@@ -31,20 +28,6 @@ export const TenderModal = ({ tender, onClose }) => {
   const deadlineRisk = tender.insight?.deadlineRisk;
   const documentGap = tender.insight?.documentGap;
   const topReasons = tender.insight?.topReasons || [];
-
-  const loadMarketSnapshot = async () => {
-    try {
-      setMarketLoading(true);
-      setMarketStatus('Loading market snapshot...');
-      const response = await api.get(`/tenders/${tender._id}/market-snapshot`);
-      setMarketSnapshot(response.data || null);
-      setMarketStatus('Market snapshot updated.');
-    } catch (error) {
-      setMarketStatus(error.response?.data?.message || 'Failed to load market snapshot.');
-    } finally {
-      setMarketLoading(false);
-    }
-  };
 
   const exportExecutiveBrief = async () => {
     try {
@@ -202,37 +185,6 @@ export const TenderModal = ({ tender, onClose }) => {
             {exportStatus ? <p className="mt-3 text-xs text-slate-600">{exportStatus}</p> : null}
           </div>
         ) : null}
-
-        <div className="mt-4 rounded-xl border border-slate-200 bg-white p-4">
-          <div className="flex items-center justify-between gap-2">
-            <h4 className="section-title">Competitor Snapshot</h4>
-            <button type="button" className="btn-secondary" onClick={loadMarketSnapshot} disabled={marketLoading}>
-              {marketLoading ? 'Loading...' : 'Refresh Snapshot'}
-            </button>
-          </div>
-          {marketSnapshot ? (
-            <div className="mt-3 grid gap-2 md:grid-cols-3">
-              <div className="kpi-card">
-                <p className="text-xs uppercase tracking-wide text-slate-500">Estimated Competitors</p>
-                <p className="mt-1 text-base font-bold">{marketSnapshot.estimatedCompetitors}</p>
-              </div>
-              <div className="kpi-card">
-                <p className="text-xs uppercase tracking-wide text-slate-500">Pressure</p>
-                <p className="mt-1 text-base font-bold">{marketSnapshot.pressureLevel}</p>
-              </div>
-              <div className="kpi-card">
-                <p className="text-xs uppercase tracking-wide text-slate-500">Pressure Score</p>
-                <p className="mt-1 text-base font-bold">{marketSnapshot.pressureScore}%</p>
-              </div>
-              <div className="md:col-span-3 rounded-xl border border-slate-200 p-3 text-sm text-slate-700">
-                {marketSnapshot.recommendation}
-              </div>
-            </div>
-          ) : (
-            <p className="mt-3 text-sm text-slate-500">No snapshot loaded yet. Click refresh to estimate competitor pressure.</p>
-          )}
-          {marketStatus ? <p className="mt-2 text-xs text-slate-600">{marketStatus}</p> : null}
-        </div>
 
         {previewPdfUrl ? (
           <div className="mt-4 rounded-xl border border-slate-200 bg-white p-4">

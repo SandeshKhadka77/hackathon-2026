@@ -19,7 +19,6 @@ const getTimeLeft = (deadlineAt) => {
 export const TenderCard = ({ tender, isBookmarked, onBookmark, onOpen }) => {
   const recommendation = tender.insight?.recommendation;
   const deadlineRisk = tender.insight?.deadlineRisk;
-  const documentGap = tender.insight?.documentGap;
 
   const decisionClassName =
     recommendation?.decision === 'go'
@@ -51,7 +50,7 @@ export const TenderCard = ({ tender, isBookmarked, onBookmark, onOpen }) => {
       <h3 className="mt-3 line-clamp-2 text-base font-semibold">{tender.title}</h3>
       <p className="mt-1 text-sm text-muted">{tender.procuringEntity}</p>
       <p className="mt-1 text-xs font-semibold uppercase tracking-wide text-brand-700">
-        {tender.sourceType === 'private' ? 'Private Organization' : 'PPMO'}
+        {tender.sourceType === 'private' ? 'Private-Sector Source' : 'PPMO Source'}
       </p>
 
       <div className="mt-3 grid gap-2 text-sm text-slate-600">
@@ -68,13 +67,6 @@ export const TenderCard = ({ tender, isBookmarked, onBookmark, onOpen }) => {
           NPR {Number(tender.amount || 0).toLocaleString()}
         </span>
       </div>
-
-      {documentGap ? (
-        <div className="mt-3 rounded-xl border border-slate-200 bg-slate-50 p-2.5 text-xs text-slate-600">
-          <p className="font-semibold text-slate-700">Document readiness: {documentGap.readyPercent}%</p>
-          <p className="mt-1">Missing: {documentGap.missing.length} | Expiring: {documentGap.expiringSoon.length}</p>
-        </div>
-      ) : null}
 
       <footer className="mt-4 flex flex-wrap gap-2">
         <button type="button" className="btn-secondary" onClick={() => onOpen(tender)}>

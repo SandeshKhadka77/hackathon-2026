@@ -14,33 +14,26 @@ export const TenderFeedPage = () => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [items, setItems] = useState([]);
-  const [privateItems, setPrivateItems] = useState([]);
   const [bookmarks, setBookmarks] = useState([]);
   const [activeTender, setActiveTender] = useState(null);
-  const shouldShowPrivateSection = sourceFilter === 'all';
-
-  const visibleItems = useMemo(
-    () => (sourceFilter === 'all' ? [...items, ...privateItems] : items),
-    [sourceFilter, items, privateItems]
-  );
 
   const bookmarkSet = useMemo(() => new Set(bookmarks.map((id) => id.toString())), [bookmarks]);
-  const highFitCount = useMemo(() => visibleItems.filter((item) => Number(item.matchPercent || 0) >= 75).length, [visibleItems]);
+  const highFitCount = useMemo(() => items.filter((item) => Number(item.matchPercent || 0) >= 75).length, [items]);
   const goCount = useMemo(
-    () => visibleItems.filter((item) => item.insight?.recommendation?.decision === 'go').length,
-    [visibleItems]
+    () => items.filter((item) => item.insight?.recommendation?.decision === 'go').length,
+    [items]
   );
   const ppmoCount = useMemo(
-    () => visibleItems.filter((item) => item.sourceType !== 'private').length,
-    [visibleItems]
+    () => items.filter((item) => item.sourceType !== 'private').length,
+    [items]
   );
   const privateCount = useMemo(
-    () => visibleItems.filter((item) => item.sourceType === 'private').length,
-    [visibleItems]
+    () => items.filter((item) => item.sourceType === 'private').length,
+    [items]
   );
   const closingSoonCount = useMemo(
     () =>
-      visibleItems.filter((item) => {
+      items.filter((item) => {
         const time = new Date(item.deadlineAt).getTime();
         if (!item.deadlineAt || Number.isNaN(time)) {
           return false;
@@ -48,17 +41,14 @@ export const TenderFeedPage = () => {
 
         return time - Date.now() <= 1000 * 60 * 60 * 24 * 3;
       }).length,
-    [visibleItems]
+    [items]
   );
 
   const loadTenders = useCallback(async (query = '') => {
     try {
       setLoading(true);
       const params = { q: query };
-      if (sourceFilter === 'all') {
-        // In all mode, keep main list as PPMO and show private in a separate section.
-        params.sourceType = 'ppmo';
-      } else {
+      if (sourceFilter !== 'all') {
         params.sourceType = sourceFilter;
       }
       if (categoryFilter !== 'all') {
@@ -82,24 +72,7 @@ export const TenderFeedPage = () => {
         api.get('/bookmarks'),
       ]);
 
-      let privateResponse = { data: { items: [] } };
-      if (sourceFilter === 'all') {
-        privateResponse = await api.get('/tenders/personalized', {
-          params: {
-            q: query,
-            sourceType: 'private',
-            category: categoryFilter !== 'all' ? categoryFilter : undefined,
-            district: districtFilter.trim() || undefined,
-            amountGte: amountMin !== '' ? Number(amountMin) : undefined,
-            amountLte: amountMax !== '' ? Number(amountMax) : undefined,
-            deadlineWithinDays: deadlineWindow !== '' ? Number(deadlineWindow) : undefined,
-            limit: 6,
-          },
-        });
-      }
-
       setItems(tenderResponse.data.items || []);
-      setPrivateItems(privateResponse.data.items || []);
       setBookmarks((bookmarkResponse.data.items || []).map((item) => item._id));
     } catch (err) {
       setError(err.response?.data?.message || 'Failed to load tenders.');
@@ -147,7 +120,7 @@ export const TenderFeedPage = () => {
           <div className="grid grid-cols-3 gap-2">
             <div className="kpi-card">
               <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Total</p>
-              <p className="mt-1 text-lg font-bold">{visibleItems.length}</p>
+              <p className="mt-1 text-lg font-bold">{items.length}</p>
             </div>
             <div className="kpi-card">
               <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Go</p>
@@ -161,7 +134,7 @@ export const TenderFeedPage = () => {
         </div>
 
         <p className="mt-3 text-xs text-slate-500">High-fit opportunities (75%+): {highFitCount}</p>
-        <p className="mt-1 text-xs text-slate-500">Source mix: PPMO {ppmoCount} | Private {privateCount}</p>
+        <p className="mt-1 text-xs text-slate-500">Source mix: PPMO {ppmoCount} | Private-Sector {privateCount}</p>
 
         <div className="mt-4 grid gap-2 md:grid-cols-[1fr_auto]">
           <input
@@ -177,7 +150,7 @@ export const TenderFeedPage = () => {
           <div className="flex flex-wrap gap-2">
             <button type="button" className={`btn-secondary ${sourceFilter === 'all' ? 'border-brand-500 text-brand-700' : ''}`} onClick={() => setSourceFilter('all')}>All Tenders</button>
             <button type="button" className={`btn-secondary ${sourceFilter === 'ppmo' ? 'border-brand-500 text-brand-700' : ''}`} onClick={() => setSourceFilter('ppmo')}>PPMO</button>
-            <button type="button" className={`btn-secondary ${sourceFilter === 'private' ? 'border-brand-500 text-brand-700' : ''}`} onClick={() => setSourceFilter('private')}>Private Publisher</button>
+            <button type="button" className={`btn-secondary ${sourceFilter === 'private' ? 'border-brand-500 text-brand-700' : ''}`} onClick={() => setSourceFilter('private')}>Private-Sector</button>
           </div>
 
           <select className="input" value={categoryFilter} onChange={(event) => setCategoryFilter(event.target.value)}>
@@ -185,6 +158,12 @@ export const TenderFeedPage = () => {
             <option value="Works">Works</option>
             <option value="Goods">Goods</option>
             <option value="Consulting">Consulting</option>
+            <option value="ICT">ICT</option>
+            <option value="Health & Medical">Health & Medical</option>
+            <option value="Agriculture">Agriculture</option>
+            <option value="Education">Education</option>
+            <option value="Energy">Energy</option>
+            <option value="Services">Services</option>
             <option value="Other">Other</option>
           </select>
         </div>
@@ -209,27 +188,6 @@ export const TenderFeedPage = () => {
 
       {error ? <div className="status-error">{error}</div> : null}
       {loading ? <div className="status-info">Loading tenders...</div> : null}
-
-      {shouldShowPrivateSection ? (
-        <article className="card p-4">
-          <h3 className="section-title">Private Organization Tenders</h3>
-          <p className="mt-1 text-sm text-slate-500">Published by private organizations, surfaced with the same matching logic.</p>
-
-          <div className="mt-3 grid gap-3 md:grid-cols-2 xl:grid-cols-3">
-            {privateItems.map((tender) => (
-              <TenderCard
-                key={tender._id}
-                tender={tender}
-                isBookmarked={bookmarkSet.has(tender._id)}
-                onBookmark={onBookmark}
-                onOpen={setActiveTender}
-              />
-            ))}
-          </div>
-
-          {!loading && !privateItems.length ? <p className="mt-3 text-sm text-slate-500">No private organization tenders available right now.</p> : null}
-        </article>
-      ) : null}
 
       <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
         {items.map((tender) => (

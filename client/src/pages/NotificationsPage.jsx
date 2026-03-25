@@ -91,8 +91,8 @@ export const NotificationsPage = () => {
 
       {status ? <div className="status-info">{status}</div> : null}
 
-      <div className="grid gap-4 lg:grid-cols-2">
-        <article className="card p-4">
+      <div className="grid items-start gap-4 lg:grid-cols-2">
+        <article className="card self-start p-4">
           <h3 className="section-title">Alert Settings</h3>
           <div className="mt-3 grid gap-3">
             <label>
@@ -142,15 +142,15 @@ export const NotificationsPage = () => {
           </div>
         </article>
 
-        <article className="card p-4">
+        <article className="card self-start p-4">
           <h3 className="section-title">Recent Notifications</h3>
-          <div className="mt-3 grid gap-3">
+          <div className="mt-3 grid max-h-[68vh] gap-2 overflow-y-auto pr-1">
             {items.map((item) => (
               <article key={item._id} className="rounded-xl border border-slate-200 p-3">
                 <h4 className="text-sm font-semibold">{item.title}</h4>
                 <p className="mt-1 text-sm text-muted">{item.reason}</p>
                 {item.metadata?.alertScore ? (
-                  <p className="mt-2 text-xs text-slate-500">Alert {item.metadata.alertScore}% ({item.metadata.alertLevel || 'low'}) | Match {item.metadata.matchPercent || 0}%</p>
+                  <p className="mt-1 text-xs text-slate-500">Alert {item.metadata.alertScore}% ({item.metadata.alertLevel || 'low'}) | Match {item.metadata.matchPercent || 0}%</p>
                 ) : null}
                 <p className="mt-1 text-xs text-slate-500">{new Date(item.createdAt).toLocaleString()}</p>
                 {!item.isRead ? (

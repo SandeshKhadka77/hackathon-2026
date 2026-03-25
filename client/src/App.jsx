@@ -9,6 +9,7 @@ import { BookmarksPage } from './pages/BookmarksPage';
 import { LandingPage } from './pages/LandingPage';
 import { NotificationsPage } from './pages/NotificationsPage';
 import { OrganizationPortalPage } from './pages/OrganizationPortalPage';
+import { JVPage } from './pages/JVPage';
 import { OperationsPage } from './pages/OperationsPage';
 import { TenderFeedPage } from './pages/TenderFeedPage';
 import { VaultPage } from './pages/VaultPage';
@@ -83,6 +84,17 @@ function App() {
           <ProtectedRoute allowedRoles={['user', 'admin']}>
             <Layout>
               <OperationsPage />
+            </Layout>
+          </ProtectedRoute>
+        }
+      />
+
+      <Route
+        path="/jv"
+        element={
+          <ProtectedRoute allowedRoles={['user', 'admin']}>
+            <Layout>
+              <JVPage />
             </Layout>
           </ProtectedRoute>
         }

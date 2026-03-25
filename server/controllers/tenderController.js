@@ -200,76 +200,6 @@ const getTenderById = async (req, res) => {
   }
 };
 
-const getMarketSnapshot = async (req, res) => {
-  try {
-    const tender = await Tender.findById(req.params.id);
-
-    if (!tender) {
-      return res.status(404).json({ message: 'Tender not found.' });
-    }
-
-    const now = new Date();
-    const past30 = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
-
-    const [sameCategoryDistrictCount, sameDistrictCount, recentCategoryCount, recentDistrictCount] = await Promise.all([
-      Tender.countDocuments({
-        isActive: true,
-        category: tender.category,
-        district: tender.district,
-        _id: { $ne: tender._id },
-      }),
-      Tender.countDocuments({
-        isActive: true,
-        district: tender.district,
-        _id: { $ne: tender._id },
-      }),
-      Tender.countDocuments({
-        category: tender.category,
-        lastSeenAt: { $gte: past30 },
-        _id: { $ne: tender._id },
-      }),
-      Tender.countDocuments({
-        district: tender.district,
-        lastSeenAt: { $gte: past30 },
-        _id: { $ne: tender._id },
-      }),
-    ]);
-
-    const pressureScore = Math.min(100, Math.round(sameCategoryDistrictCount * 8 + recentCategoryCount * 2));
-    const pressureLevel =
-      pressureScore >= 75
-        ? 'high'
-        : pressureScore >= 45
-          ? 'medium'
-          : 'low';
-
-    const estimatedCompetitors = Math.max(1, Math.round(sameCategoryDistrictCount * 1.6 + 2));
-
-    return res.json({
-      tenderId: tender._id,
-      category: tender.category,
-      district: tender.district,
-      estimatedCompetitors,
-      pressureScore,
-      pressureLevel,
-      marketSignals: {
-        sameCategoryDistrictCount,
-        sameDistrictCount,
-        recentCategoryCount,
-        recentDistrictCount,
-      },
-      recommendation:
-        pressureLevel === 'high'
-          ? 'Differentiate on technical quality and compliance speed.'
-          : pressureLevel === 'medium'
-            ? 'Competitive field is moderate. Tighten costing and responsiveness.'
-            : 'Relatively open field. Prioritize complete submission and value clarity.',
-    });
-  } catch (error) {
-    return res.status(500).json({ message: 'Failed to load market snapshot.', error: error.message });
-  }
-};
-
 const exportExecutiveBriefPdf = async (req, res) => {
   let browser;
 
@@ -398,6 +328,5 @@ const exportExecutiveBriefPdf = async (req, res) => {
 module.exports = {
   listTenders,
   getTenderById,
-  getMarketSnapshot,
   exportExecutiveBriefPdf,
 };

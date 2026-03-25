@@ -1,98 +1,216 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import { MessageCircle, UserPlus } from 'lucide-react';
 import api from '../api/client';
+import { useAuth } from '../hooks/useAuth';
 
-const emptyEstimate = {
-  emdAmount: '',
-  documentCost: '',
-  logisticsCost: '',
-  laborCost: '',
-  contingencyCost: '',
-  notes: '',
+const defaultChecklist = {
+  bidSecurity: false,
+  taxClearance: false,
+  registration: false,
 };
 
-const emptyOutcome = { result: 'pending', reason: '', learning: '' };
+const toDigits = (value = '') => String(value || '').replace(/\D/g, '');
 
-const estimateFieldMeta = [
-  { key: 'emdAmount', label: 'EMD Amount' },
-  { key: 'documentCost', label: 'Document Cost' },
-  { key: 'logisticsCost', label: 'Logistics Cost' },
-  { key: 'laborCost', label: 'Labor Cost' },
-  { key: 'contingencyCost', label: 'Contingency Cost' },
-];
+const getMemberKey = (member) => `${String(member.name || '').trim().toLowerCase()}|${toDigits(member.phone)}`;
 
-const clampPercent = (value) => Math.max(0, Math.min(100, Number(value || 0)));
+const mergeMembers = (...groups) => {
+  const seen = new Set();
+  const merged = [];
 
-const formatCurrency = (value) => `NPR ${Number(value || 0).toLocaleString()}`;
+  groups
+    .flat()
+    .filter(Boolean)
+    .forEach((member) => {
+      const name = String(member.name || '').trim();
+      const phone = toDigits(member.phone);
+      if (!name) return;
 
-const getTenderDaysLeft = (tender) => {
-  const deadlineSource = tender?.deadlineAt || tender?.deadlineRaw;
-  if (!deadlineSource) {
-    return null;
+      const normalized = {
+        id: member.id || `tm-${name.toLowerCase().replace(/\s+/g, '-')}-${phone || 'np'}`,
+        name,
+        phone,
+      };
+
+      const key = getMemberKey(normalized);
+      if (seen.has(key)) return;
+      seen.add(key);
+      merged.push(normalized);
+    });
+
+  return merged;
+};
+
+const formatDate = (value) => {
+  if (!value) return 'N/A';
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? 'N/A' : date.toLocaleDateString();
+};
+
+const formatDateTime = (value) => {
+  if (!value) return 'Never';
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? 'Never' : date.toLocaleString();
+};
+
+const formatRecommendation = (value) => {
+  if (!value) return 'Continue execution checks';
+  if (typeof value === 'string') return value;
+
+  if (typeof value === 'object') {
+    const label = value.label || value.decision;
+    const confidence = Number(value.confidence);
+    const confidenceLabel = Number.isFinite(confidence) ? ` (${Math.round(confidence)}%)` : '';
+    const reason = value.reason ? ` - ${value.reason}` : '';
+    return `${label || 'Recommendation'}${confidenceLabel}${reason}`;
   }
 
-  const deadline = new Date(deadlineSource).getTime();
-  if (Number.isNaN(deadline)) {
-    return null;
-  }
+  return String(value);
+};
 
-  return Math.ceil((deadline - Date.now()) / (1000 * 60 * 60 * 24));
+const getWorkspaceSnapshot = (tenderId, tasksByTender, checklistsByTender) => {
+  if (!tenderId) return '';
+
+  return JSON.stringify({
+    checklist: { ...defaultChecklist, ...(checklistsByTender[tenderId] || {}) },
+    tasks: tasksByTender[tenderId] || [],
+  });
+};
+
+const buildSavedWorkspaceMap = (tasksByTender, checklistsByTender) => {
+  const ids = new Set([...Object.keys(tasksByTender || {}), ...Object.keys(checklistsByTender || {})]);
+  const snapshots = {};
+
+  ids.forEach((id) => {
+    snapshots[id] = getWorkspaceSnapshot(id, tasksByTender, checklistsByTender);
+  });
+
+  return snapshots;
+};
+
+const getResultClass = (result) => {
+  if (result === 'won') return 'text-emerald-700 bg-emerald-100';
+  if (result === 'lost') return 'text-rose-700 bg-rose-100';
+  return 'text-slate-700 bg-slate-200';
 };
 
 export const OperationsPage = () => {
+  const { user } = useAuth();
   const [loading, setLoading] = useState(true);
   const [status, setStatus] = useState('');
-  const [board, setBoard] = useState({
-    timeline: { closingSoon: [], thisWeek: [], upcoming: [] },
-    trackedTenders: [],
-    pipelines: [],
-    summary: {
-      readinessScore: 0,
-      averageFeasibility: 0,
-      averageAssignmentProgress: 0,
-      highUrgencyCount: 0,
-    },
-  });
+  const [activeTenders, setActiveTenders] = useState([]);
+  const [closedTenders, setClosedTenders] = useState([]);
+  const [pipelines, setPipelines] = useState([]);
+  const [activeTenderId, setActiveTenderId] = useState('');
 
-  const [selectedTenderId, setSelectedTenderId] = useState('');
-  const [estimate, setEstimate] = useState(emptyEstimate);
-  const [assignment, setAssignment] = useState({ memberName: '', role: '', task: '', dueAt: '' });
-  const [outcome, setOutcome] = useState(emptyOutcome);
-  const [simulation, setSimulation] = useState(null);
-  const [autoPlanResult, setAutoPlanResult] = useState(null);
-  const [simulating, setSimulating] = useState(false);
-  const [autoPlanning, setAutoPlanning] = useState(false);
+  const [teamMembers, setTeamMembers] = useState([]);
+  const [newMember, setNewMember] = useState({ name: '', phone: '' });
+
+  const [taskInput, setTaskInput] = useState({
+    name: '',
+    details: '',
+    deliverable: '',
+    priority: 'medium',
+    dueAt: '',
+    memberId: '',
+  });
+  const [tasksByTender, setTasksByTender] = useState({});
+  const [checklistsByTender, setChecklistsByTender] = useState({});
+  const [savedWorkspaceByTender, setSavedWorkspaceByTender] = useState({});
+  const [lastSavedAtByTender, setLastSavedAtByTender] = useState({});
+  const infoMessage = loading ? 'Loading operations dashboard...' : status;
+  const teamStorageKey = useMemo(
+    () => `ops-team-members-${user?.id || user?.email || 'anonymous'}`,
+    [user?.id, user?.email]
+  );
+  const workspaceStorageKey = useMemo(
+    () => `ops-workspace-${user?.id || user?.email || 'anonymous'}`,
+    [user?.id, user?.email]
+  );
+
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem(teamStorageKey);
+      if (!raw) {
+        setTeamMembers([]);
+        return;
+      }
+
+      const parsed = JSON.parse(raw);
+      const persisted = Array.isArray(parsed)
+        ? parsed.filter((member) => String(member?.name || '').trim() && toDigits(member?.phone))
+        : [];
+      setTeamMembers(mergeMembers(persisted));
+    } catch {
+      setTeamMembers([]);
+    }
+  }, [teamStorageKey]);
+
+  useEffect(() => {
+    localStorage.setItem(teamStorageKey, JSON.stringify(teamMembers));
+  }, [teamMembers, teamStorageKey]);
+
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem(workspaceStorageKey);
+      if (!raw) return;
+
+      const parsed = JSON.parse(raw);
+      const storedTasks = parsed?.tasksByTender && typeof parsed.tasksByTender === 'object' ? parsed.tasksByTender : {};
+      const storedChecklists = parsed?.checklistsByTender && typeof parsed.checklistsByTender === 'object' ? parsed.checklistsByTender : {};
+      const storedLastSavedAt = parsed?.lastSavedAtByTender && typeof parsed.lastSavedAtByTender === 'object'
+        ? parsed.lastSavedAtByTender
+        : {};
+
+      setTasksByTender(storedTasks);
+      setChecklistsByTender(storedChecklists);
+      setLastSavedAtByTender(storedLastSavedAt);
+      setSavedWorkspaceByTender(buildSavedWorkspaceMap(storedTasks, storedChecklists));
+    } catch {
+      setSavedWorkspaceByTender({});
+      setLastSavedAtByTender({});
+    }
+  }, [workspaceStorageKey]);
 
   const loadBoard = useCallback(async () => {
     try {
       setLoading(true);
       const response = await api.get('/operations/board');
       const data = response.data || {};
-      setBoard({
-        timeline: data.timeline || { closingSoon: [], thisWeek: [], upcoming: [] },
-        trackedTenders: data.trackedTenders || [],
-        pipelines: data.pipelines || [],
-        summary: data.summary || {
-          readinessScore: 0,
-          averageFeasibility: 0,
-          averageAssignmentProgress: 0,
-          highUrgencyCount: 0,
-        },
+      const trackedTenders = data.trackedTenders || [];
+      const boardPipelines = data.pipelines || [];
+
+      const pipelineByTenderId = new Map(
+        boardPipelines
+          .filter((item) => item?.tender?._id)
+          .map((item) => [String(item.tender._id), item])
+      );
+
+      const active = trackedTenders.filter((tender) => {
+        const pipeline = pipelineByTenderId.get(String(tender._id));
+        const result = pipeline?.outcome?.result;
+        return !(result && result !== 'pending');
       });
 
-      const tracked = data.trackedTenders || [];
-      setSelectedTenderId((prev) => {
-        if (!tracked.length) {
-          return '';
-        }
+      const closed = trackedTenders
+        .map((tender) => {
+          const pipeline = pipelineByTenderId.get(String(tender._id));
+          const result = pipeline?.outcome?.result;
+          if (!result || result === 'pending') return null;
 
-        if (prev && tracked.some((item) => item._id === prev)) {
-          return prev;
-        }
+          return { tender, pipeline };
+        })
+        .filter(Boolean);
 
-        return tracked[0]._id;
+      setPipelines(boardPipelines);
+      setActiveTenders(active);
+      setClosedTenders(closed);
+
+      setActiveTenderId((prev) => {
+        if (prev && active.some((item) => item._id === prev)) return prev;
+        return active[0]?._id || '';
       });
     } catch (error) {
-      setStatus(error.response?.data?.message || 'Failed to load operations board.');
+      setStatus(error.response?.data?.message || 'Failed to load operations dashboard.');
     } finally {
       setLoading(false);
     }
@@ -102,491 +220,442 @@ export const OperationsPage = () => {
     loadBoard();
   }, [loadBoard]);
 
-  const selectedPipeline = useMemo(
-    () => board.pipelines.find((item) => item.tender?._id === selectedTenderId) || null,
-    [board.pipelines, selectedTenderId]
-  );
-
   useEffect(() => {
-    if (!selectedPipeline) {
-      setEstimate(emptyEstimate);
-      return;
-    }
-
-    if (!selectedPipeline?.estimate) {
-      setEstimate(emptyEstimate);
-      return;
-    }
-
-    const nextEstimate = selectedPipeline.estimate || {};
-    setEstimate((prev) => ({
-      ...prev,
-      emdAmount: nextEstimate.emdAmount ?? '',
-      documentCost: nextEstimate.documentCost ?? '',
-      logisticsCost: nextEstimate.logisticsCost ?? '',
-      laborCost: nextEstimate.laborCost ?? '',
-      contingencyCost: nextEstimate.contingencyCost ?? '',
-      notes: nextEstimate.notes || '',
-    }));
-  }, [selectedPipeline]);
-
-  useEffect(() => {
-    if (!selectedPipeline?.outcome) {
-      setOutcome(emptyOutcome);
-      return;
-    }
-
-    setOutcome({
-      result: selectedPipeline.outcome.result || 'pending',
-      reason: selectedPipeline.outcome.reason || '',
-      learning: selectedPipeline.outcome.learning || '',
+    if (!activeTenderId) return;
+    setChecklistsByTender((prev) => {
+      if (prev[activeTenderId]) return prev;
+      return { ...prev, [activeTenderId]: { ...defaultChecklist } };
     });
-  }, [selectedPipeline]);
+  }, [activeTenderId]);
 
-  useEffect(() => {
-    setSimulation(null);
-    setAutoPlanResult(null);
-  }, [selectedTenderId]);
-
-  const estimatedTotal = useMemo(() => {
-    const num = (value) => Number(value || 0);
-    return num(estimate.emdAmount) + num(estimate.documentCost) + num(estimate.logisticsCost) + num(estimate.laborCost) + num(estimate.contingencyCost);
-  }, [estimate]);
-
-  const updateEstimateValue = (key) => (event) => setEstimate((prev) => ({ ...prev, [key]: event.target.value }));
-
-  const submitEstimate = async (event) => {
-    event.preventDefault();
-    if (!selectedTenderId) {
-      setStatus('Select a tracked tender first.');
-      return;
-    }
-
-    try {
-      const response = await api.post('/operations/estimate', { tenderId: selectedTenderId, ...estimate });
-      setStatus(response.data.message || 'Estimate saved.');
-      await loadBoard();
-    } catch (error) {
-      setStatus(error.response?.data?.message || 'Failed to save estimate.');
-    }
-  };
-
-  const runSimulation = async () => {
-    if (!selectedTenderId) {
-      setStatus('Select a tracked tender first.');
-      return;
-    }
-
-    try {
-      setSimulating(true);
-      const response = await api.post('/operations/simulate', { tenderId: selectedTenderId, ...estimate });
-      setSimulation(response.data || null);
-      setStatus('Feasibility analysis updated. Review cost risk and recommendation below.');
-    } catch (error) {
-      setStatus(error.response?.data?.message || 'Failed to run what-if simulation.');
-    } finally {
-      setSimulating(false);
-    }
-  };
-
-  const generateAutoPlan = async () => {
-    if (!selectedTenderId) {
-      setStatus('Select a tracked tender first.');
-      return;
-    }
-
-    try {
-      setAutoPlanning(true);
-      const response = await api.post('/operations/auto-plan', { tenderId: selectedTenderId });
-      setAutoPlanResult(response.data || null);
-      setStatus(response.data.message || 'Execution plan generated.');
-      await loadBoard();
-    } catch (error) {
-      setStatus(error.response?.data?.message || 'Failed to generate auto plan.');
-    } finally {
-      setAutoPlanning(false);
-    }
-  };
-
-  const addAssignment = async (event) => {
-    event.preventDefault();
-
-    if (!selectedTenderId) {
-      setStatus('Select a tracked tender first.');
-      return;
-    }
-
-    try {
-      const today = new Date();
-      today.setHours(0, 0, 0, 0);
-      if (assignment.dueAt && new Date(assignment.dueAt).getTime() < today.getTime()) {
-        setStatus('Due date cannot be in the past.');
-        return;
-      }
-
-      const response = await api.post('/operations/assignments', {
-        tenderId: selectedTenderId,
-        ...assignment,
-      });
-      setStatus(response.data.message || 'Assignment added.');
-      setAssignment({ memberName: '', role: '', task: '', dueAt: '' });
-      await loadBoard();
-    } catch (error) {
-      setStatus(error.response?.data?.message || 'Failed to add assignment.');
-    }
-  };
-
-  const markDone = async (pipelineId, assignmentId) => {
-    try {
-      const response = await api.patch(`/operations/assignments/${pipelineId}/${assignmentId}/done`);
-      setStatus(response.data.message || 'Assignment updated.');
-      await loadBoard();
-    } catch (error) {
-      setStatus(error.response?.data?.message || 'Failed to mark assignment done.');
-    }
-  };
-
-  const submitOutcome = async (event) => {
-    event.preventDefault();
-
-    if (!selectedTenderId) {
-      setStatus('Select a tracked tender first.');
-      return;
-    }
-
-    try {
-      const response = await api.post('/operations/outcome', {
-        tenderId: selectedTenderId,
-        ...outcome,
-      });
-      setStatus(response.data.message || 'Outcome recorded.');
-      await loadBoard();
-    } catch (error) {
-      setStatus(error.response?.data?.message || 'Failed to record outcome.');
-    }
-  };
-
-  const selectedTender = useMemo(
-    () => board.trackedTenders.find((item) => item._id === selectedTenderId) || null,
-    [board.trackedTenders, selectedTenderId]
+  const activeTender = useMemo(
+    () => activeTenders.find((item) => item._id === activeTenderId) || null,
+    [activeTenders, activeTenderId]
   );
 
-  const hasTrackedTenders = board.trackedTenders.length > 0;
-  const selectedDaysLeft = getTenderDaysLeft(selectedTender);
-
-  const assignmentList = useMemo(
-    () => (selectedPipeline ? selectedPipeline.assignments || [] : []),
-    [selectedPipeline]
+  const activePipeline = useMemo(
+    () => pipelines.find((item) => item?.tender?._id === activeTenderId) || null,
+    [pipelines, activeTenderId]
   );
 
-  const pendingAssignmentsCount = assignmentList.filter((item) => !item.done).length;
+  const activeChecklist = useMemo(
+    () => checklistsByTender[activeTenderId] || defaultChecklist,
+    [checklistsByTender, activeTenderId]
+  );
 
-  const dueSoonAssignmentsCount = assignmentList.filter((item) => {
-    if (item.done || !item.dueAt) {
+  const activeTasks = useMemo(
+    () => tasksByTender[activeTenderId] || [],
+    [tasksByTender, activeTenderId]
+  );
+
+  const checklistCompletion = useMemo(() => {
+    const total = Object.keys(defaultChecklist).length;
+    const done = Object.values(activeChecklist).filter(Boolean).length;
+    const percent = total ? Math.round((done / total) * 100) : 0;
+    return { done, total, percent };
+  }, [activeChecklist]);
+
+  const taskCompletion = useMemo(() => {
+    const total = activeTasks.length;
+    const done = activeTasks.filter((task) => task.done).length;
+    const percent = total ? Math.round((done / total) * 100) : 0;
+    return { done, total, percent };
+  }, [activeTasks]);
+
+  const completedTaskCount = useMemo(
+    () => activeTasks.filter((task) => task.done).length,
+    [activeTasks]
+  );
+
+  const pendingTaskCount = Math.max(activeTasks.length - completedTaskCount, 0);
+
+  const hasUnsavedChanges = useMemo(() => {
+    if (!activeTenderId) return false;
+    const currentSnapshot = getWorkspaceSnapshot(activeTenderId, tasksByTender, checklistsByTender);
+    const savedSnapshot = savedWorkspaceByTender[activeTenderId] || '';
+    return currentSnapshot !== savedSnapshot;
+  }, [activeTenderId, tasksByTender, checklistsByTender, savedWorkspaceByTender]);
+
+  const saveCurrentWorkspace = useCallback(() => {
+    if (!activeTenderId) {
+      setStatus('Select an active tender first.');
       return false;
     }
 
-    const dueMs = new Date(item.dueAt).getTime();
-    if (Number.isNaN(dueMs)) {
-      return false;
+    const now = new Date().toISOString();
+    const nextLastSaved = { ...lastSavedAtByTender, [activeTenderId]: now };
+
+    localStorage.setItem(
+      workspaceStorageKey,
+      JSON.stringify({
+        tasksByTender,
+        checklistsByTender,
+        lastSavedAtByTender: nextLastSaved,
+      })
+    );
+
+    const snapshot = getWorkspaceSnapshot(activeTenderId, tasksByTender, checklistsByTender);
+    setLastSavedAtByTender(nextLastSaved);
+    setSavedWorkspaceByTender((prev) => ({ ...prev, [activeTenderId]: snapshot }));
+    setStatus('Workspace saved for this tender.');
+    return true;
+  }, [
+    activeTenderId,
+    checklistsByTender,
+    lastSavedAtByTender,
+    tasksByTender,
+    workspaceStorageKey,
+  ]);
+
+  const handleTenderChange = (nextTenderId) => {
+    if (!nextTenderId || nextTenderId === activeTenderId) return;
+
+    if (hasUnsavedChanges) {
+      const proceedWithSave = window.confirm('You have unsaved workspace changes. Press OK to save and switch tender.');
+      if (!proceedWithSave) return;
+
+      const saved = saveCurrentWorkspace();
+      if (!saved) return;
     }
 
-    const diffDays = Math.ceil((dueMs - Date.now()) / (1000 * 60 * 60 * 24));
-    return diffDays >= 0 && diffDays <= 2;
-  }).length;
+    setActiveTenderId(nextTenderId);
+    setTaskInput({
+      name: '',
+      details: '',
+      deliverable: '',
+      priority: 'medium',
+      dueAt: '',
+      memberId: '',
+    });
+  };
 
-  const nextActionText = useMemo(() => {
-    if (!hasTrackedTenders) {
-      return 'Bookmark relevant tenders from Feed to start operations.';
-    }
+  const progressStep = useMemo(() => {
+    const checklistDone = Object.values(activeChecklist).every(Boolean);
+    const tasksDone = activeTasks.length > 0 && activeTasks.every((task) => task.done);
 
-    if (!selectedTenderId) {
-      return 'Select a tracked tender to continue.';
-    }
+    if (tasksDone) return 3;
+    if (checklistDone) return 2;
+    return 1;
+  }, [activeChecklist, activeTasks]);
 
-    if (!selectedPipeline?.estimate || Number(selectedPipeline.estimatedTotal || 0) === 0) {
-      return 'Add bid cost estimate and run feasibility analysis.';
-    }
+  const steps = ['Tender Active', 'Compliance Ready', 'Team Tasks'];
 
-    if (!(selectedPipeline.assignments || []).length) {
-      return 'Generate task plan and assign owners.';
-    }
-
-    if ((selectedPipeline.assignmentProgress || 0) < 100) {
-      return 'Complete pending assignments before submission.';
-    }
-
-    if (!selectedPipeline.outcome || selectedPipeline.outcome.result === 'pending') {
-      return 'Record post-mortem outcome to capture team learnings.';
-    }
-
-    return 'Workflow complete. Move to next tender in pipeline.';
-  }, [hasTrackedTenders, selectedTenderId, selectedPipeline]);
-
-  const workflowSteps = useMemo(() => {
-    const readiness = board.summary.readinessScore || 0;
-    const taskProgress = selectedPipeline?.assignmentProgress || 0;
-    const feasibility = simulation?.feasibilityScore || selectedPipeline?.feasibilityScore || 0;
-
-    return [
-      {
-        title: '1. Compliance Ready',
-        score: clampPercent(readiness),
-        detail: 'Upload and validate core documents before bid preparation.',
+  const toggleChecklist = (key) => {
+    if (!activeTenderId) return;
+    setChecklistsByTender((prev) => ({
+      ...prev,
+      [activeTenderId]: {
+        ...(prev[activeTenderId] || defaultChecklist),
+        [key]: !(prev[activeTenderId] || defaultChecklist)[key],
       },
-      {
-        title: '2. Cost Feasibility',
-        score: clampPercent(feasibility),
-        detail: 'Use cost inputs to test whether this bid is budget-safe.',
-      },
-      {
-        title: '3. Task Execution',
-        score: clampPercent(taskProgress),
-        detail: 'Assign and complete execution tasks on time.',
-      },
-      {
-        title: '4. Outcome Capture',
-        score: selectedPipeline?.outcome?.result && selectedPipeline.outcome.result !== 'pending' ? 100 : 20,
-        detail: 'Record result and learning for future bid quality.',
-      },
-    ];
-  }, [board.summary.readinessScore, selectedPipeline, simulation]);
+    }));
+  };
 
-  const timelineBuckets = [
-    { key: 'closingSoon', label: 'Closing Soon' },
-    { key: 'thisWeek', label: 'This Week' },
-    { key: 'upcoming', label: 'Upcoming' },
-  ];
+  const addTeamMember = () => {
+    const name = newMember.name.trim();
+    const phone = toDigits(newMember.phone);
+
+    if (!name || !phone) {
+      setStatus('Enter team member name and phone.');
+      return;
+    }
+
+    const nextMember = {
+      id: `tm-${Date.now()}`,
+      name,
+      phone,
+    };
+
+    setTeamMembers((prev) => [...prev, nextMember]);
+    setNewMember({ name: '', phone: '' });
+    setStatus('Team member added.');
+  };
+
+  const addTask = () => {
+    if (!activeTenderId) {
+      setStatus('Select an active tender first.');
+      return;
+    }
+
+    const taskName = taskInput.name.trim();
+    const taskDetails = taskInput.details.trim();
+    const taskDeliverable = taskInput.deliverable.trim();
+    const member = teamMembers.find((item) => item.id === taskInput.memberId);
+
+    if (!taskName || !taskDetails || !member) {
+      setStatus('Task title, task details, and assignee are required.');
+      return;
+    }
+
+    const task = {
+      id: `task-${Date.now()}`,
+      name: taskName,
+      memberId: member.id,
+      memberName: member.name,
+      memberPhone: member.phone,
+      details: taskDetails,
+      deliverable: taskDeliverable,
+      priority: taskInput.priority || 'medium',
+      dueAt: taskInput.dueAt || '',
+      done: false,
+      createdAt: new Date().toISOString(),
+    };
+
+    setTasksByTender((prev) => ({
+      ...prev,
+      [activeTenderId]: [...(prev[activeTenderId] || []), task],
+    }));
+
+    setTaskInput({
+      name: '',
+      details: '',
+      deliverable: '',
+      priority: 'medium',
+      dueAt: '',
+      memberId: '',
+    });
+    setStatus('Task added to active workspace.');
+  };
+
+  const toggleTaskDone = (taskId) => {
+    if (!activeTenderId) return;
+
+    setTasksByTender((prev) => ({
+      ...prev,
+      [activeTenderId]: (prev[activeTenderId] || []).map((task) =>
+        task.id === taskId ? { ...task, done: !task.done } : task
+      ),
+    }));
+  };
+
+  const notifyTaskOnWhatsApp = (task) => {
+    const member = teamMembers.find((item) => item.id === task.memberId);
+    if (!member) {
+      setStatus('Assigned team member not found.');
+      return;
+    }
+
+    if (!member.phone) {
+      setStatus('This member has no phone number. Add a phone to send WhatsApp.');
+      return;
+    }
+
+    const text = `Task: ${task.name} for ${activeTender?.tenderId || 'Tender'}`;
+    window.open(`https://wa.me/${member.phone}?text=${encodeURIComponent(text)}`);
+  };
 
   return (
     <section className="space-y-4">
-      <article className="card p-5 md:p-6">
-        <div className="grid gap-3 md:grid-cols-[1fr_auto] md:items-start">
-          <div>
-            <p className="text-xs font-semibold uppercase tracking-wide text-brand-700">Execution</p>
-            <h2 className="page-title">Operations Workspace</h2>
-            <p className="page-subtitle">Simple 4-step workflow: select tender, validate feasibility, execute assignments, and capture outcomes.</p>
-          </div>
-          <div className="grid grid-cols-3 gap-2">
-            <div className="kpi-card"><p className="text-xs text-slate-500">Readiness</p><p className="text-lg font-bold">{clampPercent(board.summary.readinessScore)}%</p></div>
-            <div className="kpi-card"><p className="text-xs text-slate-500">Feasibility</p><p className="text-lg font-bold">{clampPercent(board.summary.averageFeasibility)}%</p></div>
-            <div className="kpi-card"><p className="text-xs text-slate-500">Urgent</p><p className="text-lg font-bold">{board.summary.highUrgencyCount}</p></div>
-          </div>
+      <article className="card p-4 md:p-6">
+        <p className="text-xs font-semibold uppercase tracking-wide text-brand-700">Operations</p>
+        <h2 className="page-title">Vendor Operations Dashboard</h2>
+        <p className="page-subtitle max-w-3xl">Execution-focused workspace for active tenders, team assignment, and closure records.</p>
+
+        <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+          <div className="kpi-card"><p className="text-xs text-slate-500">Active Tenders</p><p className="text-lg font-bold">{activeTenders.length}</p></div>
+          <div className="kpi-card"><p className="text-xs text-slate-500">Closed Tenders</p><p className="text-lg font-bold">{closedTenders.length}</p></div>
+          <div className="kpi-card"><p className="text-xs text-slate-500">Team Members</p><p className="text-lg font-bold">{teamMembers.length}</p></div>
+          <div className="kpi-card"><p className="text-xs text-slate-500">Open Tasks</p><p className="text-lg font-bold">{activeTasks.filter((task) => !task.done).length}</p></div>
         </div>
 
-        <div className="mt-4 rounded-xl border border-brand-200 bg-brand-50 p-3">
-          <p className="text-xs font-semibold uppercase tracking-wide text-brand-700">Next Best Action</p>
-          <p className="mt-1 text-sm font-semibold text-slate-800">{nextActionText}</p>
-        </div>
-
-        <div className="mt-4 max-w-lg">
+        <div className="mt-4 max-w-xl">
           <label>
-            <span className="label">Step 1: Select Tracked Tender</span>
-            <select className="input" value={selectedTenderId} onChange={(event) => setSelectedTenderId(event.target.value)}>
-              <option value="">Select tracked tender</option>
-              {board.trackedTenders.map((item) => (
+            <span className="label">Active Tender Selector</span>
+            <select className="input" value={activeTenderId} onChange={(event) => handleTenderChange(event.target.value)}>
+              <option value="">Select active tender</option>
+              {activeTenders.map((item) => (
                 <option key={item._id} value={item._id}>{item.tenderId} - {item.title}</option>
               ))}
             </select>
           </label>
-        </div>
 
-        {!hasTrackedTenders && !loading ? (
-          <div className="mt-3 rounded-xl border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">
-            No tracked tenders yet. Bookmark tenders from Feed first, then return here to estimate cost, assign tasks, and record outcomes.
-          </div>
-        ) : null}
-
-        {selectedTender ? (
-          <div className="mt-3 rounded-xl border border-slate-200 bg-slate-50 p-3 text-sm text-slate-700">
-            <p className="font-semibold text-slate-800">Selected Tender</p>
-            <p className="mt-1">{selectedTender.title}</p>
-            <p className="mt-1 text-xs text-slate-500">
-              {selectedTender.tenderId} | {selectedTender.category} | {selectedTender.district}
+          <div className="mt-2 flex flex-wrap items-center gap-2">
+            <button type="button" className="btn-secondary" onClick={saveCurrentWorkspace} disabled={!activeTenderId || !hasUnsavedChanges}>
+              Save Workspace
+            </button>
+            <p className="text-xs text-slate-500">
+              {activeTenderId
+                ? `${hasUnsavedChanges ? 'Unsaved changes' : 'All changes saved'} | Last saved: ${formatDateTime(lastSavedAtByTender[activeTenderId])}`
+                : 'Select a tender to manage workspace'}
             </p>
-            <div className="mt-2 flex flex-wrap gap-2">
-              <span className="rounded-full bg-slate-200 px-2 py-0.5 text-xs font-semibold text-slate-700">{formatCurrency(selectedTender.amount)}</span>
-              {selectedDaysLeft != null ? (
-                <span className={`rounded-full px-2 py-0.5 text-xs font-semibold ${selectedDaysLeft <= 2 ? 'bg-amber-100 text-amber-800' : selectedDaysLeft <= 7 ? 'bg-sky-100 text-sky-800' : 'bg-emerald-100 text-emerald-800'}`}>
-                  {selectedDaysLeft < 0 ? 'Closed' : `${selectedDaysLeft} day(s) left`}
-                </span>
-              ) : null}
-            </div>
+          </div>
+        </div>
+
+        {infoMessage ? (
+          <div className="mt-3 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-1.5 text-xs text-emerald-800">
+            {infoMessage}
           </div>
         ) : null}
-
-        <div className="mt-4 flex flex-wrap gap-2">
-          <button type="button" className="btn-secondary" onClick={runSimulation} disabled={simulating || !selectedTenderId}>
-            {simulating ? 'Analyzing...' : 'Analyze Feasibility'}
-          </button>
-          <button type="button" className="btn-primary" onClick={generateAutoPlan} disabled={autoPlanning || !selectedTenderId}>
-            {autoPlanning ? 'Generating...' : 'Generate Task Plan'}
-          </button>
-        </div>
-
-        <div className="mt-4 grid gap-3 md:grid-cols-2">
-          <div className="rounded-xl border border-slate-200 p-3 text-sm text-slate-700">
-            <p className="font-semibold text-slate-800">What does Analyze Feasibility do?</p>
-            <p className="mt-1">It simulates your cost assumptions and returns budget fit, risk level, and go/hold/no-go guidance.</p>
-          </div>
-          <div className="rounded-xl border border-slate-200 p-3 text-sm text-slate-700">
-            <p className="font-semibold text-slate-800">What does Generate Task Plan do?</p>
-            <p className="mt-1">It creates smart execution tasks from category checklist and deadline urgency, avoiding duplicates.</p>
-          </div>
-        </div>
       </article>
 
-      {status ? <div className="status-info">{status}</div> : null}
-      {loading ? <div className="status-info">Loading operations board...</div> : null}
+      <section className="grid auto-rows-min items-start gap-4 lg:grid-cols-[1.15fr_0.85fr] xl:grid-cols-[1.2fr_0.8fr]">
+        <article className="card self-start p-4 md:p-5">
+          <h3 className="section-title">Active Workspace</h3>
 
-      {hasTrackedTenders ? (
-        <div className="grid gap-3 lg:grid-cols-4">
-          <article className="card p-4 lg:col-span-4">
-            <h3 className="section-title">Workflow Progress</h3>
-            <div className="mt-3 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
-              {workflowSteps.map((step) => (
-                <div key={step.title} className="rounded-xl border border-slate-200 p-3">
-                  <p className="text-sm font-semibold text-slate-800">{step.title}</p>
-                  <div className="mt-2 h-2 w-full overflow-hidden rounded-full bg-slate-200">
-                    <div className="h-full rounded-full bg-brand-600" style={{ width: `${step.score}%` }} />
-                  </div>
-                  <p className="mt-2 text-sm font-bold">{step.score}%</p>
-                  <p className="mt-1 text-xs text-slate-500">{step.detail}</p>
+          {!activeTender ? (
+            <p className="mt-3 text-sm text-slate-500">No active tender selected. Track tenders from Feed to start execution.</p>
+          ) : (
+            <div className="mt-3 space-y-4">
+              <div className="rounded-xl border border-slate-200 bg-slate-50 p-3 md:p-4">
+                <p className="text-sm font-semibold text-slate-800">{activeTender.title}</p>
+                <p className="mt-1 text-xs text-slate-500">{activeTender.tenderId} | {activeTender.category} | {activeTender.district}</p>
+
+                <div className="mt-3 grid gap-2 sm:grid-cols-4">
+                  {steps.map((step, index) => {
+                    const isDone = index + 1 <= progressStep;
+                    return (
+                      <div key={step} className={`rounded-lg border px-2 py-2 text-center text-xs font-semibold ${isDone ? 'border-emerald-200 bg-emerald-50 text-emerald-700' : 'border-slate-200 bg-white text-slate-500'}`}>
+                        {index + 1}. {step}
+                      </div>
+                    );
+                  })}
                 </div>
-              ))}
-            </div>
-          </article>
-
-          {timelineBuckets.map((bucket) => (
-            <article key={bucket.key} className="card p-4">
-              <h3 className="section-title">{bucket.label}</h3>
-              <div className="mt-3 grid gap-2">
-                {(board.timeline[bucket.key] || []).slice(0, 5).map((item) => (
-                  <div key={item._id} className="rounded-xl border border-slate-200 p-2">
-                    <p className="text-sm font-semibold line-clamp-2">{item.title}</p>
-                    <p className="mt-1 text-xs text-slate-500">{item.tenderId} | Match {item.matchPercent}%</p>
-                  </div>
-                ))}
-                {!board.timeline[bucket.key]?.length ? <p className="text-xs text-slate-500">No tenders in this bucket.</p> : null}
               </div>
-            </article>
-          ))}
-        </div>
-      ) : null}
 
-      {hasTrackedTenders ? (
-        <div className="grid gap-4 lg:grid-cols-2">
-          <article className="card p-4">
-            <h3 className="section-title">Step 2: Cost Estimation</h3>
-            <form className="mt-3 grid gap-3" onSubmit={submitEstimate}>
-              {estimateFieldMeta.map((field) => (
-                <label key={field.key}>
-                  <span className="label">{field.label}</span>
-                  <input className="input" type="number" min="0" value={estimate[field.key]} onChange={updateEstimateValue(field.key)} />
-                </label>
-              ))}
-              <label>
-                <span className="label">Notes</span>
-                <input className="input" value={estimate.notes} onChange={updateEstimateValue('notes')} />
-              </label>
-              <p className="text-sm font-semibold">Estimated Total: {formatCurrency(estimatedTotal)}</p>
-              <div className="flex flex-wrap gap-2">
-                <button type="submit" className="btn-primary">Save Estimate</button>
-              </div>
-            </form>
-
-            {simulation ? (
-              <div className="mt-4 rounded-xl border border-slate-200 bg-slate-50 p-3">
-                <h4 className="text-sm font-semibold text-slate-800">Feasibility Result</h4>
-                <div className="mt-2 grid gap-2 sm:grid-cols-2">
-                  <div className="kpi-card"><p className="text-xs text-slate-500">Feasibility</p><p className="font-bold">{simulation.feasibilityScore}%</p></div>
-                  <div className="kpi-card"><p className="text-xs text-slate-500">Budget Fit</p><p className="font-bold">{simulation.budgetFit}%</p></div>
-                  <div className="kpi-card"><p className="text-xs text-slate-500">Cost Risk</p><p className="font-bold">{simulation.costRiskLevel}</p></div>
-                  <div className="kpi-card"><p className="text-xs text-slate-500">Decision</p><p className="font-bold">{simulation.recommendation?.label || 'N/A'}</p></div>
+              <div className="rounded-xl border border-slate-200 p-3 md:p-4">
+                <p className="text-sm font-semibold text-slate-800">Compliance Checklist</p>
+                <div className="mt-3 grid gap-2 sm:grid-cols-3">
+                  <label className="flex items-center gap-2 text-sm text-slate-700">
+                    <input type="checkbox" checked={activeChecklist.bidSecurity} onChange={() => toggleChecklist('bidSecurity')} />
+                    Bid Security
+                  </label>
+                  <label className="flex items-center gap-2 text-sm text-slate-700">
+                    <input type="checkbox" checked={activeChecklist.taxClearance} onChange={() => toggleChecklist('taxClearance')} />
+                    Tax Clearance
+                  </label>
+                  <label className="flex items-center gap-2 text-sm text-slate-700">
+                    <input type="checkbox" checked={activeChecklist.registration} onChange={() => toggleChecklist('registration')} />
+                    Registration
+                  </label>
                 </div>
-                <p className="mt-2 text-xs text-slate-600">{simulation.note}</p>
               </div>
-            ) : null}
 
-            {autoPlanResult ? (
-              <div className="mt-3 rounded-xl border border-slate-200 bg-white p-3">
-                <h4 className="text-sm font-semibold text-slate-800">Generated Task Plan</h4>
-                <p className="mt-1 text-xs text-slate-600">Tasks added: {autoPlanResult.generatedCount || 0}</p>
-                <p className="mt-1 text-xs text-slate-600">Recommendation: {autoPlanResult.recommendation?.label || 'N/A'}</p>
+              <div className="rounded-xl border border-slate-200 bg-slate-50 p-3 md:p-4">
+                <p className="text-sm font-semibold text-slate-800">Tender Operations Summary</p>
+                <div className="mt-2 grid gap-2 text-xs sm:grid-cols-2">
+                  <div className="rounded-lg border border-slate-200 bg-white px-2 py-2 text-slate-700"><span className="font-semibold">Tender ID:</span> {activeTender?.tenderId || 'Not selected'}</div>
+                  <div className="rounded-lg border border-slate-200 bg-white px-2 py-2 text-slate-700"><span className="font-semibold">Category:</span> {activeTender?.category || 'Not selected'}</div>
+                  <div className="rounded-lg border border-slate-200 bg-white px-2 py-2 text-slate-700"><span className="font-semibold">Deadline:</span> {formatDate(activeTender?.deadlineAt)}</div>
+                  <div className="rounded-lg border border-slate-200 bg-white px-2 py-2 text-slate-700"><span className="font-semibold">District:</span> {activeTender?.district || 'N/A'}</div>
+                  <div className="rounded-lg border border-slate-200 bg-white px-2 py-2 text-slate-700"><span className="font-semibold">Checklist:</span> {checklistCompletion.done}/{checklistCompletion.total} ({checklistCompletion.percent}%)</div>
+                  <div className="rounded-lg border border-slate-200 bg-white px-2 py-2 text-slate-700"><span className="font-semibold">Task Progress:</span> {taskCompletion.done}/{taskCompletion.total} ({taskCompletion.percent}%)</div>
+                  <div className="rounded-lg border border-slate-200 bg-white px-2 py-2 text-slate-700"><span className="font-semibold">Pipeline Match:</span> {Math.round(activePipeline?.matchPercent || 0)}%</div>
+                  <div className="rounded-lg border border-slate-200 bg-white px-2 py-2 text-slate-700"><span className="font-semibold">Feasibility:</span> {Math.round(activePipeline?.feasibilityScore || 0)}%</div>
+                  <div className="rounded-lg border border-slate-200 bg-white px-2 py-2 text-slate-700"><span className="font-semibold">Open Tasks:</span> {pendingTaskCount}</div>
+                  <div className="rounded-lg border border-slate-200 bg-white px-2 py-2 text-slate-700"><span className="font-semibold">Last Save:</span> {formatDateTime(lastSavedAtByTender[activeTenderId])}</div>
+                  <div className="rounded-lg border border-slate-200 bg-white px-2 py-2 leading-relaxed text-slate-700 sm:col-span-2"><span className="font-semibold">Recommended Action:</span> {formatRecommendation(activePipeline?.recommendation)}</div>
+                </div>
               </div>
-            ) : null}
-          </article>
-
-          <article className="card p-4">
-            <h3 className="section-title">Step 3: Team Execution</h3>
-            <div className="mb-3 grid gap-2 sm:grid-cols-2">
-              <div className="kpi-card"><p className="text-xs text-slate-500">Pending Tasks</p><p className="text-lg font-bold">{pendingAssignmentsCount}</p></div>
-              <div className="kpi-card"><p className="text-xs text-slate-500">Due in 48h</p><p className="text-lg font-bold">{dueSoonAssignmentsCount}</p></div>
             </div>
-
-            <form className="mt-3 grid gap-3" onSubmit={addAssignment}>
-              <label><span className="label">Member Name</span><input className="input" value={assignment.memberName} onChange={(event) => setAssignment((prev) => ({ ...prev, memberName: event.target.value }))} required /></label>
-              <label><span className="label">Role</span><input className="input" value={assignment.role} onChange={(event) => setAssignment((prev) => ({ ...prev, role: event.target.value }))} required /></label>
-              <label><span className="label">Task</span><input className="input" value={assignment.task} onChange={(event) => setAssignment((prev) => ({ ...prev, task: event.target.value }))} required /></label>
-              <label><span className="label">Due Date</span><input className="input" type="date" value={assignment.dueAt} onChange={(event) => setAssignment((prev) => ({ ...prev, dueAt: event.target.value }))} /></label>
-              <button type="submit" className="btn-primary">Add Assignment</button>
-            </form>
-          </article>
-        </div>
-      ) : null}
-
-      {hasTrackedTenders ? (
-        <article className="card p-4">
-          <h3 className="section-title">Step 4: Submission Post-Mortem</h3>
-          <form className="mt-3 grid gap-3 md:grid-cols-2" onSubmit={submitOutcome}>
-            <label>
-              <span className="label">Result</span>
-              <select className="input" value={outcome.result} onChange={(event) => setOutcome((prev) => ({ ...prev, result: event.target.value }))}>
-                <option value="pending">Pending</option>
-                <option value="won">Won</option>
-                <option value="lost">Lost</option>
-                <option value="withdrawn">Withdrawn</option>
-              </select>
-            </label>
-            <label>
-              <span className="label">Reason</span>
-              <input className="input" value={outcome.reason} onChange={(event) => setOutcome((prev) => ({ ...prev, reason: event.target.value }))} />
-            </label>
-            <label className="md:col-span-2">
-              <span className="label">Learning</span>
-              <input className="input" value={outcome.learning} onChange={(event) => setOutcome((prev) => ({ ...prev, learning: event.target.value }))} />
-            </label>
-            <button type="submit" className="btn-primary md:col-span-2">Save Post-Mortem</button>
-          </form>
+          )}
         </article>
-      ) : null}
 
-      {hasTrackedTenders ? (
-        <article className="card p-4">
-          <h3 className="section-title">Assignment Tracker</h3>
-          <div className="mt-3 grid gap-3">
-            {(selectedPipeline ? [selectedPipeline] : board.pipelines).flatMap((pipeline) =>
-              (pipeline.assignments || []).map((item) => (
-                <div key={item._id} className="rounded-xl border border-slate-200 p-3">
-                  <p className="text-sm font-semibold">{item.task}</p>
-                  <p className="mt-1 text-sm text-muted">{pipeline.tender?.title || 'Tender removed'} | {item.memberName} ({item.role})</p>
-                  <p className="mt-1 text-xs text-slate-500">{item.dueAt ? new Date(item.dueAt).toLocaleDateString() : 'No due date set'}</p>
-                  <div className="mt-2 flex flex-wrap items-center gap-2">
-                    <span className={`rounded-full px-2 py-0.5 text-xs font-semibold ${item.done ? 'bg-emerald-100 text-emerald-800' : 'bg-amber-100 text-amber-800'}`}>
-                      {item.done ? 'Done' : 'Pending'}
-                    </span>
-                    {!item.done ? <button type="button" className="btn-secondary" onClick={() => markDone(pipeline._id, item._id)}>Mark done</button> : null}
-                  </div>
+        <article className="card self-start p-4 md:p-5">
+          <h3 className="section-title">Team Assignment</h3>
+
+          <div className="mt-3 rounded-xl border border-slate-200 bg-slate-50 p-3">
+            <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Team Members</p>
+            <div className="mt-2 grid gap-2 text-sm text-slate-700">
+              {teamMembers.map((member) => (
+                <div key={member.id} className="rounded-lg border border-slate-200 bg-white px-2 py-1.5">
+                  {member.name}{member.phone ? ` | ${member.phone}` : ''}
                 </div>
-              ))
-            )}
-            {(selectedPipeline ? [selectedPipeline] : board.pipelines).every((pipeline) => !(pipeline.assignments || []).length) ? (
-              <p className="text-sm text-slate-500">No assignments yet. Add tasks to start execution tracking.</p>
-            ) : null}
+              ))}
+              {!teamMembers.length ? <p className="text-xs text-slate-500">No team members yet. Add real members and phone numbers below.</p> : null}
+            </div>
+
+            <div className="mt-3 grid gap-2 sm:grid-cols-[1fr_1fr_auto]">
+              <input className="input" placeholder="Team member name" value={newMember.name} onChange={(event) => setNewMember((prev) => ({ ...prev, name: event.target.value }))} />
+              <input className="input" placeholder="Phone (e.g. 97798...)" value={newMember.phone} onChange={(event) => setNewMember((prev) => ({ ...prev, phone: toDigits(event.target.value) }))} />
+              <button type="button" className="btn-secondary" onClick={addTeamMember}><UserPlus size={14} /> Add</button>
+            </div>
           </div>
-          {selectedPipeline ? <p className="mt-3 text-xs text-slate-500">Showing assignments for selected tender only.</p> : null}
+
+          <div className="mt-4 grid gap-2">
+            <input className="input" placeholder="Task title" value={taskInput.name} onChange={(event) => setTaskInput((prev) => ({ ...prev, name: event.target.value }))} />
+            <textarea
+              className="input min-h-[72px]"
+              placeholder="Task details: scope, references, and what exactly must be done"
+              value={taskInput.details}
+              onChange={(event) => setTaskInput((prev) => ({ ...prev, details: event.target.value }))}
+            />
+            <input className="input" placeholder="Expected deliverable (e.g. BOQ draft, signed compliance pack)" value={taskInput.deliverable} onChange={(event) => setTaskInput((prev) => ({ ...prev, deliverable: event.target.value }))} />
+            <div className="grid gap-2 sm:grid-cols-2">
+              <select className="input" value={taskInput.priority} onChange={(event) => setTaskInput((prev) => ({ ...prev, priority: event.target.value }))}>
+                <option value="high">High Priority</option>
+                <option value="medium">Medium Priority</option>
+                <option value="low">Low Priority</option>
+              </select>
+              <input className="input" type="date" value={taskInput.dueAt} onChange={(event) => setTaskInput((prev) => ({ ...prev, dueAt: event.target.value }))} />
+            </div>
+            <select className="input" value={taskInput.memberId} onChange={(event) => setTaskInput((prev) => ({ ...prev, memberId: event.target.value }))}>
+              <option value="">Assign to team member</option>
+              {teamMembers.map((member) => (
+                <option key={member.id} value={member.id}>{member.name}</option>
+              ))}
+            </select>
+            <button type="button" className="btn-primary" onClick={addTask} disabled={!activeTenderId}>Create Task</button>
+          </div>
+
+          <div className="mt-4 grid max-h-[34rem] gap-2 overflow-y-auto pr-1">
+            {activeTasks.map((task) => (
+              <div key={task.id} className="rounded-xl border border-slate-200 bg-slate-50/50 p-3">
+                <p className="text-sm font-semibold text-slate-800">{task.name}</p>
+                <p className="mt-1 text-xs text-slate-500">Assigned to: {task.memberName}</p>
+                <p className="mt-1 text-xs text-slate-500">Priority: <span className="font-semibold capitalize">{task.priority || 'medium'}</span>{task.dueAt ? ` | Due: ${formatDate(task.dueAt)}` : ''}</p>
+                <p className="mt-1 text-xs text-slate-600">{task.details || 'No task details added.'}</p>
+                {task.deliverable ? <p className="mt-1 text-xs text-slate-500">Deliverable: {task.deliverable}</p> : null}
+                <p className="mt-1 text-xs text-slate-500">Created: {task.createdAt ? formatDateTime(task.createdAt) : 'Not recorded'}</p>
+                <div className="mt-2 flex flex-wrap gap-2">
+                  <button type="button" className="btn-secondary" onClick={() => toggleTaskDone(task.id)}>
+                    {task.done ? 'Mark Pending' : 'Mark Done'}
+                  </button>
+                  <button type="button" className="btn-secondary" onClick={() => notifyTaskOnWhatsApp(task)}>
+                    <MessageCircle size={14} /> WhatsApp Notify
+                  </button>
+                </div>
+              </div>
+            ))}
+            {!activeTasks.length ? <p className="text-sm text-slate-500">No tasks created for the selected active tender.</p> : null}
+          </div>
         </article>
-      ) : null}
+      </section>
+
+      <article className="card p-4 md:p-5">
+        <h3 className="section-title">Previous Records</h3>
+        <p className="mt-1 text-sm text-slate-500">History of completed tenders with results and lessons learned.</p>
+
+        <div className="mt-4 overflow-x-auto">
+          <table className="min-w-full border-separate border-spacing-y-2">
+            <thead>
+              <tr className="text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
+                <th className="px-3">Tender Title</th>
+                <th className="px-3">Date</th>
+                <th className="px-3">Result</th>
+                <th className="px-3">Lessons Learned</th>
+              </tr>
+            </thead>
+            <tbody>
+              {closedTenders.map((item) => {
+                const outcome = item.pipeline?.outcome || {};
+                return (
+                  <tr key={item.tender._id} className="rounded-xl bg-slate-50 text-sm text-slate-700">
+                    <td className="px-3 py-3 font-semibold text-slate-800">{item.tender.title}</td>
+                    <td className="px-3 py-3">{formatDate(outcome.recordedAt || item.pipeline?.updatedAt)}</td>
+                    <td className="px-3 py-3">
+                      <span className={`rounded-full px-2 py-1 text-xs font-semibold capitalize ${getResultClass(outcome.result)}`}>
+                        {outcome.result}
+                      </span>
+                    </td>
+                    <td className="px-3 py-3">{outcome.learning || 'No lesson captured.'}</td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+          {!closedTenders.length ? <p className="text-sm text-slate-500">No closed tender records yet.</p> : null}
+        </div>
+      </article>
     </section>
   );
 };

@@ -35,7 +35,7 @@ const UserSchema = new mongoose.Schema(
     category: {
       type: String,
       required: true,
-      enum: ['Works', 'Goods', 'Consulting', 'Other'],
+      enum: ['Works', 'Goods', 'Consulting', 'ICT', 'Health & Medical', 'Agriculture', 'Education', 'Energy', 'Services', 'Other'],
     },
     vendorGroup: {
       type: String,
@@ -51,6 +51,7 @@ const UserSchema = new mongoose.Schema(
     capacity: { type: Number, required: true, min: 0 },
     role: { type: String, enum: ['user', 'admin', 'organization'], default: 'user' },
     expertiseTags: [{ type: String, trim: true }],
+    activeJVBids: [{ type: mongoose.Schema.Types.ObjectId, ref: 'Tender' }],
     bookmarks: [{ type: mongoose.Schema.Types.ObjectId, ref: 'Tender' }],
     documents: {
       panVat: UploadedDocumentSchema,

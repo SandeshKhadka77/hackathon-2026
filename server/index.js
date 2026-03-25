@@ -13,6 +13,7 @@ const notificationRoutes = require('./routes/notificationRoutes');
 const adminRoutes = require('./routes/adminRoutes');
 const operationsRoutes = require('./routes/operationsRoutes');
 const organizationRoutes = require('./routes/organizationRoutes');
+const jvRoutes = require('./routes/jvRoutes');
 const { runScraperAndUpsert, sendDailyDigests } = require('./utils/scraper');
 
 const app = express();
@@ -81,6 +82,7 @@ app.use('/api/notifications', notificationRoutes);
 app.use('/api/admin', adminRoutes);
 app.use('/api/operations', operationsRoutes);
 app.use('/api/organization', organizationRoutes);
+app.use('/api/jv', jvRoutes);
 
 const PORT = 5000;
 const startServer = async () => {

@@ -251,6 +251,12 @@ export const LandingPage = () => {
             <option value="Works">Works</option>
             <option value="Goods">Goods</option>
             <option value="Consulting">Consulting</option>
+            <option value="ICT">ICT</option>
+            <option value="Health & Medical">Health & Medical</option>
+            <option value="Agriculture">Agriculture</option>
+            <option value="Education">Education</option>
+            <option value="Energy">Energy</option>
+            <option value="Services">Services</option>
             <option value="Other">Other</option>
           </select>
         </div>
