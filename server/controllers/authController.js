@@ -130,6 +130,71 @@ const register = async (req, res) => {
   }
 };
 
+const registerOrganization = async (req, res) => {
+  try {
+    if (!isDbReady()) {
+      return res.status(503).json({ message: 'Database is not ready. Please try again.' });
+    }
+
+    const { name, email, password, district, organizationType } = req.body;
+
+    const normalizedName = normalizeString(name);
+    const normalizedEmail = normalizeEmail(email);
+    const normalizedDistrict = normalizeString(district || 'Kathmandu');
+
+    if (!normalizedName || !normalizedEmail || !password) {
+      return res.status(400).json({ message: 'Name, email and password are required.' });
+    }
+
+    if (!EMAIL_REGEX.test(normalizedEmail)) {
+      return res.status(400).json({ message: 'Provide a valid email address.' });
+    }
+
+    const passwordError = validatePassword(password);
+    if (passwordError) {
+      return res.status(400).json({ message: passwordError });
+    }
+
+    const existingUser = await User.findOne({ email: normalizedEmail });
+    if (existingUser) {
+      return res.status(409).json({ message: 'Email is already registered.' });
+    }
+
+    const passwordHash = await bcrypt.hash(password, 10);
+
+    const user = await User.create({
+      name: normalizedName,
+      email: normalizedEmail,
+      passwordHash,
+      district: normalizedDistrict,
+      category: 'Other',
+      vendorGroup: 'Medium',
+      organizationType: organizationType || 'Private Limited',
+      capacity: 0,
+      expertiseTags: [],
+      role: 'organization',
+      notificationPreferences: {
+        emailEnabled: true,
+        inAppEnabled: true,
+        quickMatchAlerts: false,
+        digestEnabled: false,
+        digestHour: 8,
+        maxAlertsPerRun: 8,
+        minimumMatchPercent: 60,
+      },
+    });
+
+    const token = createToken(user);
+    return res.status(201).json({ token, user: sanitizeUser(user) });
+  } catch (error) {
+    if (error?.code === 11000) {
+      return res.status(409).json({ message: 'Email is already registered.' });
+    }
+
+    return res.status(500).json({ message: 'Failed to register organization.', error: error.message });
+  }
+};
+
 const login = async (req, res) => {
   try {
     if (!isDbReady()) {
@@ -170,6 +235,7 @@ const me = async (req, res) => {
 
 module.exports = {
   register,
+  registerOrganization,
   login,
   me,
 };

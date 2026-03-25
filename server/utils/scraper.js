@@ -172,6 +172,8 @@ async function extractCurrentPageRows(page) {
           tenderId,
           title,
           procuringEntity,
+          sourceType: 'ppmo',
+          organizationName: procuringEntity,
           location,
           deadline,
           amount,

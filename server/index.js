@@ -12,6 +12,7 @@ const documentRoutes = require('./routes/documentRoutes');
 const notificationRoutes = require('./routes/notificationRoutes');
 const adminRoutes = require('./routes/adminRoutes');
 const operationsRoutes = require('./routes/operationsRoutes');
+const organizationRoutes = require('./routes/organizationRoutes');
 const { runScraperAndUpsert, sendDailyDigests } = require('./utils/scraper');
 
 const app = express();
@@ -79,6 +80,7 @@ app.use('/api/documents', documentRoutes);
 app.use('/api/notifications', notificationRoutes);
 app.use('/api/admin', adminRoutes);
 app.use('/api/operations', operationsRoutes);
+app.use('/api/organization', organizationRoutes);
 
 const PORT = 5000;
 const startServer = async () => {

@@ -62,8 +62,10 @@ const sortPersonalizedItems = (items = []) =>
 
 const listTenders = async (req, res) => {
   try {
-    const { q = '', category, district, page = 1, limit = 20 } = req.query;
+    const { q = '', category, district, sourceType, page = 1, limit = 20 } = req.query;
+    const amountGte = parsePositiveNumber(req.query.amountGte);
     const amountLte = parsePositiveNumber(req.query.amountLte);
+    const deadlineWithinDays = parsePositiveNumber(req.query.deadlineWithinDays);
 
     const query = { isActive: true };
 
@@ -83,8 +85,37 @@ const listTenders = async (req, res) => {
       query.district = district;
     }
 
-    if (amountLte != null) {
-      query.amount = { $lte: amountLte };
+    if (['ppmo', 'private'].includes(String(sourceType || '').toLowerCase())) {
+      const normalizedSourceType = String(sourceType).toLowerCase();
+      if (normalizedSourceType === 'ppmo') {
+        query.$and = [
+          ...(query.$and || []),
+          {
+            $or: [{ sourceType: 'ppmo' }, { sourceType: { $exists: false } }, { sourceType: null }],
+          },
+        ];
+      } else {
+        query.sourceType = normalizedSourceType;
+      }
+    }
+
+    if (amountGte != null || amountLte != null) {
+      query.amount = {};
+      if (amountGte != null) {
+        query.amount.$gte = amountGte;
+      }
+      if (amountLte != null) {
+        query.amount.$lte = amountLte;
+      }
+    }
+
+    if (deadlineWithinDays != null && deadlineWithinDays > 0) {
+      const now = new Date();
+      const upper = new Date(now.getTime() + deadlineWithinDays * 24 * 60 * 60 * 1000);
+      query.deadlineAt = {
+        $gte: now,
+        $lte: upper,
+      };
     }
 
     const pageNumber = Math.max(1, Number(page) || 1);

@@ -1,7 +1,10 @@
 import { useEffect, useState } from 'react';
 import api from '../api/client';
+import { useAuth } from '../hooks/useAuth';
 
 export const NotificationsPage = () => {
+  const { user } = useAuth();
+  const isPublisher = user?.role === 'organization';
   const [items, setItems] = useState([]);
   const [preferences, setPreferences] = useState({
     emailEnabled: true,
@@ -31,6 +34,22 @@ export const NotificationsPage = () => {
     setItems((prev) => prev.map((item) => (item._id === id ? { ...item, isRead: true } : item)));
   };
 
+  const markAllAsRead = async () => {
+    const unreadIds = items.filter((item) => !item.isRead).map((item) => item._id);
+    if (!unreadIds.length) {
+      setStatus('All notifications are already read.');
+      return;
+    }
+
+    try {
+      await Promise.all(unreadIds.map((id) => api.patch(`/notifications/${id}/read`)));
+      setItems((prev) => prev.map((item) => ({ ...item, isRead: true })));
+      setStatus('All notifications marked as read.');
+    } catch (error) {
+      setStatus(error.response?.data?.message || 'Failed to mark all notifications as read.');
+    }
+  };
+
   const updatePreferences = async () => {
     try {
       const response = await api.patch('/notifications/preferences', preferences);
@@ -45,14 +64,29 @@ export const NotificationsPage = () => {
     <section className="space-y-4">
       <article className="card p-5 md:p-6">
         <p className="text-xs font-semibold uppercase tracking-wide text-brand-700">Alerts</p>
-        <h2 className="page-title">Notifications</h2>
-        <p className="page-subtitle">Keep settings simple: control channels, threshold, and digest timing.</p>
+        <h2 className="page-title">{isPublisher ? 'Publisher Alerts' : 'Notifications'}</h2>
+        <p className="page-subtitle">
+          {isPublisher
+            ? 'Use alerts to monitor vendor traction, deadline risk, and tender lifecycle actions from one control panel.'
+            : 'Keep settings simple: control channels, threshold, and digest timing.'}
+        </p>
 
         <div className="mt-4 grid gap-2 sm:grid-cols-3">
           <div className="kpi-card"><p className="text-xs text-slate-500">Total</p><p className="text-xl font-bold">{items.length}</p></div>
           <div className="kpi-card"><p className="text-xs text-slate-500">Unread</p><p className="text-xl font-bold">{items.filter((item) => !item.isRead).length}</p></div>
           <div className="kpi-card"><p className="text-xs text-slate-500">Digest</p><p className="text-xl font-bold">{preferences.digestEnabled ? 'On' : 'Off'}</p></div>
         </div>
+
+        {isPublisher ? (
+          <div className="mt-4 rounded-xl border border-slate-200 bg-slate-50 p-4">
+            <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">What Alerts Do For Publishers</p>
+            <div className="mt-3 grid gap-2 md:grid-cols-3">
+              <div className="rounded-xl border border-slate-200 bg-white p-3 text-sm text-slate-700">1. Notify when vendor interest spikes on live private tenders.</div>
+              <div className="rounded-xl border border-slate-200 bg-white p-3 text-sm text-slate-700">2. Warn your team before deadlines and response windows close.</div>
+              <div className="rounded-xl border border-slate-200 bg-white p-3 text-sm text-slate-700">3. Keep tender lifecycle actions visible for faster publishing decisions.</div>
+            </div>
+          </div>
+        ) : null}
       </article>
 
       {status ? <div className="status-info">{status}</div> : null}
@@ -78,7 +112,7 @@ export const NotificationsPage = () => {
             </label>
 
             <label>
-              <span className="label">Quick Match Emails</span>
+              <span className="label">{isPublisher ? 'Tender Traction Emails' : 'Quick Match Emails'}</span>
               <select className="input" value={preferences.quickMatchAlerts ? 'on' : 'off'} onChange={(event) => setPreferences((prev) => ({ ...prev, quickMatchAlerts: event.target.value === 'on' }))}>
                 <option value="on">Enabled</option>
                 <option value="off">Disabled</option>
@@ -97,11 +131,14 @@ export const NotificationsPage = () => {
             </div>
 
             <label>
-              <span className="label">Minimum Match % For Alert</span>
+              <span className="label">{isPublisher ? 'Minimum Traction % For Alert' : 'Minimum Match % For Alert'}</span>
               <input className="input" type="number" min="30" max="100" value={preferences.minimumMatchPercent} onChange={(event) => setPreferences((prev) => ({ ...prev, minimumMatchPercent: Number(event.target.value || 60) }))} />
             </label>
 
-            <button type="button" className="btn-primary" onClick={updatePreferences}>Save Settings</button>
+            <div className="flex flex-wrap gap-2">
+              <button type="button" className="btn-primary" onClick={updatePreferences}>Save Settings</button>
+              <button type="button" className="btn-secondary" onClick={markAllAsRead}>Mark All Read</button>
+            </div>
           </div>
         </article>
 

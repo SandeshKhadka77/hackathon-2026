@@ -239,6 +239,79 @@ const CURATED_DEMO_TENDERS = [
   },
 ];
 
+const PRIVATE_DEMO_TENDERS = [
+  {
+    tenderId: 'DEMO-PRV-2026-001',
+    title: 'Private Township Internal Road and Utility Trench Works',
+    procuringEntity: 'Aarohan Builders Pvt. Ltd.',
+    category: 'Works',
+    location: 'Budhanilkantha, Kathmandu',
+    district: 'Kathmandu',
+    amount: 11800000,
+    deadlineRaw: '09-05-2026 12:00 NPT',
+    deadlineAt: new Date(Date.now() + 48 * 24 * 60 * 60 * 1000),
+    detailUrl: 'https://example.org/private/tenders/001',
+    noticeUrl: 'https://example.org/private/tenders/001-notice.pdf',
+    requiredDocuments: ['Company Registration', 'Tax Clearance', 'Past Work Completion Letters'],
+  },
+  {
+    tenderId: 'DEMO-PRV-2026-002',
+    title: 'Warehouse Foundation and Steel Frame Civil Package',
+    procuringEntity: 'Himal Trade Logistics Pvt. Ltd.',
+    category: 'Works',
+    location: 'Thankot, Kathmandu',
+    district: 'Kathmandu',
+    amount: 9400000,
+    deadlineRaw: '10-05-2026 11:30 NPT',
+    deadlineAt: new Date(Date.now() + 49 * 24 * 60 * 60 * 1000),
+    detailUrl: 'https://example.org/private/tenders/002',
+    noticeUrl: 'https://example.org/private/tenders/002-notice.pdf',
+    requiredDocuments: ['PAN/VAT', 'Bid Security', 'Work Method Statement'],
+  },
+  {
+    tenderId: 'DEMO-PRV-2026-003',
+    title: 'Factory Compound Drainage and RCC Pavement Construction',
+    procuringEntity: 'Nepal Agro Processors Ltd.',
+    category: 'Works',
+    location: 'Naxal, Kathmandu',
+    district: 'Kathmandu',
+    amount: 8600000,
+    deadlineRaw: '11-05-2026 13:00 NPT',
+    deadlineAt: new Date(Date.now() + 50 * 24 * 60 * 60 * 1000),
+    detailUrl: 'https://example.org/private/tenders/003',
+    noticeUrl: 'https://example.org/private/tenders/003-notice.pdf',
+    requiredDocuments: ['Company Registration', 'Tax Clearance', 'Safety Plan'],
+  },
+  {
+    tenderId: 'DEMO-PRV-2026-004',
+    title: 'Corporate Office Fit-Out Civil and Electrical Finishing',
+    procuringEntity: 'Summit Finserv Limited',
+    category: 'Works',
+    location: 'Maitighar, Kathmandu',
+    district: 'Kathmandu',
+    amount: 7400000,
+    deadlineRaw: '12-05-2026 14:00 NPT',
+    deadlineAt: new Date(Date.now() + 51 * 24 * 60 * 60 * 1000),
+    detailUrl: 'https://example.org/private/tenders/004',
+    noticeUrl: 'https://example.org/private/tenders/004-notice.pdf',
+    requiredDocuments: ['PAN/VAT', 'Financial Statement', 'Execution Team CVs'],
+  },
+  {
+    tenderId: 'DEMO-PRV-2026-005',
+    title: 'Apartment Complex Boundary Wall and Gate Construction',
+    procuringEntity: 'Meridian Housing Pvt. Ltd.',
+    category: 'Works',
+    location: 'Bafal, Kathmandu',
+    district: 'Kathmandu',
+    amount: 6900000,
+    deadlineRaw: '13-05-2026 12:00 NPT',
+    deadlineAt: new Date(Date.now() + 52 * 24 * 60 * 60 * 1000),
+    detailUrl: 'https://example.org/private/tenders/005',
+    noticeUrl: 'https://example.org/private/tenders/005-notice.pdf',
+    requiredDocuments: ['Company Registration', 'Tax Clearance', 'Similar Work Evidence'],
+  },
+];
+
 const CURATED_TENDER_IDS = new Set(CURATED_DEMO_TENDERS.map((item) => item.tenderId));
 
 const ensureCuratedDemoTenders = async () => {
@@ -255,11 +328,45 @@ const ensureCuratedDemoTenders = async () => {
       {
         $set: {
           ...item,
+          sourceType: 'ppmo',
+          organizationName: item.procuringEntity,
           documentLinks,
           sourceUrl: item.detailUrl,
           sourceFingerprint: `demo-${item.tenderId}`,
           scrapeRunId: 'demo-curated',
           parseConfidence: 99,
+          sourcePage: 1,
+          sourcePosition: 1,
+          isActive: true,
+          lastSeenAt: new Date(),
+          scrapedAt: new Date(),
+        },
+      },
+      { upsert: true }
+    );
+  }
+};
+
+const ensurePrivateDemoTenders = async (organizationUser) => {
+  for (const item of PRIVATE_DEMO_TENDERS) {
+    await Tender.updateOne(
+      { tenderId: item.tenderId },
+      {
+        $set: {
+          ...item,
+          sourceType: 'private',
+          organizationName: item.procuringEntity,
+          publishedBy: organizationUser?._id || null,
+          contactEmail: organizationUser?.email || 'procurement@example.org',
+          requiredDocuments: item.requiredDocuments || [],
+          documentLinks: [
+            { label: 'Notice PDF', url: item.noticeUrl, type: 'pdf' },
+            { label: 'Detail Page', url: item.detailUrl, type: 'detail' },
+          ],
+          sourceUrl: item.detailUrl,
+          sourceFingerprint: `private-${item.tenderId}`,
+          scrapeRunId: 'private-demo-seed',
+          parseConfidence: 100,
           sourcePage: 1,
           sourcePosition: 1,
           isActive: true,
@@ -349,7 +456,28 @@ const ensureDemoUsers = async () => {
     { returnDocument: 'after', upsert: true }
   );
 
-  return { demoUser, adminUser };
+  const organizationUser = await User.findOneAndUpdate(
+    { email: 'private.org@avasarpatra.com' },
+    {
+      $set: {
+        name: 'Aarohan Builders Pvt. Ltd.',
+        passwordHash: userPasswordHash,
+        district: 'Kathmandu',
+        category: 'Other',
+        vendorGroup: 'Medium',
+        organizationType: 'Private Limited',
+        capacity: 0,
+        expertiseTags: ['private projects'],
+        role: 'organization',
+      },
+      $setOnInsert: {
+        email: 'private.org@avasarpatra.com',
+      },
+    },
+    { returnDocument: 'after', upsert: true }
+  );
+
+  return { demoUser, adminUser, organizationUser };
 };
 
 const setupBookmarksAndPipelines = async (demoUser, tenders) => {
@@ -459,7 +587,8 @@ const run = async () => {
     // Curated tenders guarantee complete, presentation-ready records for demo storytelling.
     await ensureCuratedDemoTenders();
 
-    const { demoUser } = await ensureDemoUsers();
+    const { demoUser, organizationUser } = await ensureDemoUsers();
+    await ensurePrivateDemoTenders(organizationUser);
 
     const activeTenders = await Tender.find({ isActive: true }).sort({ deadlineAt: 1, createdAt: -1 }).limit(60);
     if (!activeTenders.length) {
@@ -474,6 +603,7 @@ const run = async () => {
     console.log('\n[demo] setup complete');
     console.log('[demo] user login: demo.vendor@avasarpatra.com / DemoPass123');
     console.log('[demo] admin login: admin@avasarpatra.com / AdminPass123');
+    console.log('[demo] organization login: private.org@avasarpatra.com / DemoPass123');
     console.log('[demo] seeded tenders:', tenders.length);
   } catch (error) {
     console.error('[demo] setup failed:', error.message || error);

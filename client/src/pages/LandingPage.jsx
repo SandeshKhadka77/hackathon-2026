@@ -54,26 +54,104 @@ const whyItems = [
   'Profile-based matching and alerts',
 ];
 
+const sharedStarterPlan = {
+  name: 'Starter (Free)',
+  price: 'Free',
+  subtitle: 'Core tools for early-stage teams',
+  features: [
+    'Live notice feed (public tenders)',
+    'Basic profile setup and district filters',
+    'Manual bookmarks and tender watchlist',
+    'Limited monthly smart matches',
+  ],
+  cta: 'Start Free',
+};
+
+const rolePlans = {
+  vendor: {
+    roleLabel: 'For Vendors',
+    plans: [
+      sharedStarterPlan,
+      {
+        name: 'Vendor ',
+        price: 'NPR 999 / month',
+        subtitle: 'For vendors actively bidding every month',
+        features: [
+          'Everything in Starter',
+          'Unlimited profile-based matches',
+          'Boardroom insights and executive brief tools',
+          'Advanced alerts, ops workflows, and vault readiness',
+          '15-day free trial ',
+        ],
+        cta: 'Start Vendor Trial',
+      },
+    ],
+  },
+  publisher: {
+    roleLabel: 'For Publishers',
+    plans: [
+      sharedStarterPlan,
+      {
+        name: 'Publisher ',
+        price: 'NPR 1,499 / month',
+        subtitle: 'For organizations publishing private tenders',
+        features: [
+          'Everything in Starter',
+          'Private tender publishing workspace',
+          'Vendor traction insights and activity tracking',
+          'Multi-user publisher roles and controls',
+          '15-day free trial',
+        ],
+        cta: 'Start Publisher Trial',
+      },
+    ],
+  },
+};
+
 export const LandingPage = () => {
   const [items, setItems] = useState([]);
+  const [sourceType, setSourceType] = useState('all');
+  const [categoryFilter, setCategoryFilter] = useState('all');
+  const [pricingAudience, setPricingAudience] = useState('vendor');
+
+  const scrollToSection = (event, sectionId) => {
+    event.preventDefault();
+    const section = document.getElementById(sectionId);
+    if (!section) {
+      return;
+    }
+
+    section.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  };
 
   useEffect(() => {
     (async () => {
       try {
-        const response = await api.get('/tenders', { params: { limit: 12 } });
+        const params = { limit: 12 };
+        if (sourceType !== 'all') {
+          params.sourceType = sourceType;
+        }
+        if (categoryFilter !== 'all') {
+          params.category = categoryFilter;
+        }
+
+        const response = await api.get('/tenders', { params });
         setItems(response.data.items || []);
       } catch {
         setItems([]);
       }
     })();
-  }, []);
+  }, [sourceType, categoryFilter]);
 
   const stats = useMemo(() => {
     const total = items.length;
     const works = items.filter((item) => item.category === 'Works').length;
     const goods = items.filter((item) => item.category === 'Goods').length;
-    return { total, works, goods };
+    const privateCount = items.filter((item) => item.sourceType === 'private').length;
+    return { total, works, goods, privateCount };
   }, [items]);
+
+  const visiblePlans = rolePlans[pricingAudience].plans;
 
   return (
     <div className="mx-auto max-w-7xl px-4 py-4 md:px-6">
@@ -86,14 +164,14 @@ export const LandingPage = () => {
         </Link>
 
         <nav className="flex flex-wrap items-center gap-2 text-sm font-semibold text-slate-600">
-          <a href="#how-it-works" className="rounded-lg px-2 py-1 hover:bg-slate-100">How It Works</a>
-          <a href="#live-notices" className="rounded-lg px-2 py-1 hover:bg-slate-100">Live Notices</a>
-          <a href="#why-avasar" className="rounded-lg px-2 py-1 hover:bg-slate-100">Why Avasar Patra</a>
+          <a href="#how-it-works" className="rounded-lg px-2 py-1 hover:bg-slate-100" onClick={(event) => scrollToSection(event, 'how-it-works')}>How It Works</a>
+          <a href="#live-notices" className="rounded-lg px-2 py-1 hover:bg-slate-100" onClick={(event) => scrollToSection(event, 'live-notices')}>Live Notices</a>
+          <a href="#pricing" className="rounded-lg px-2 py-1 hover:bg-slate-100" onClick={(event) => scrollToSection(event, 'pricing')}>Pricing</a>
+          <a href="#why-avasar" className="rounded-lg px-2 py-1 hover:bg-slate-100" onClick={(event) => scrollToSection(event, 'why-avasar')}>Why Avasar Patra</a>
         </nav>
 
-        <div className="flex gap-2">
-          <Link className="btn-secondary" to="/login">Login</Link>
-          <Link className="btn-primary" to="/signup">Signup</Link>
+        <div className="flex flex-wrap gap-2">
+          <Link className="btn-primary" to="/access">Login / Register</Link>
         </div>
       </header>
 
@@ -106,8 +184,8 @@ export const LandingPage = () => {
           </p>
 
           <div className="mt-6 flex flex-wrap gap-3">
-            <Link to="/signup" className="btn-primary">Create Vendor Account</Link>
-            <Link to="/login" className="btn-secondary">Open Dashboard</Link>
+            <Link to="/access" className="btn-primary">Login / Register</Link>
+            <a href="#live-notices" className="btn-secondary" onClick={(event) => scrollToSection(event, 'live-notices')}>Explore Live Notices</a>
           </div>
 
           <div className="mt-6 flex flex-wrap gap-4 text-sm text-slate-600">
@@ -131,11 +209,15 @@ export const LandingPage = () => {
               <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Goods</p>
               <p className="mt-1 text-2xl font-bold">{stats.goods}</p>
             </div>
+            <div className="kpi-card">
+              <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Private</p>
+              <p className="mt-1 text-2xl font-bold">{stats.privateCount}</p>
+            </div>
           </div>
         </aside>
       </section>
 
-      <section id="how-it-works" className="card mt-4 p-6 md:p-8">
+      <section id="how-it-works" className="landing-section card mt-4 p-6 md:p-8">
         <h3 className="page-title text-2xl">How It Works</h3>
         <p className="page-subtitle">A clean three-step flow focused on speed and readiness.</p>
 
@@ -153,9 +235,25 @@ export const LandingPage = () => {
         </div>
       </section>
 
-      <section id="live-notices" className="card mt-4 p-6 md:p-8">
+      <section id="live-notices" className="landing-section card mt-4 p-6 md:p-8">
         <h3 className="page-title text-2xl">Live Notice Preview</h3>
         <p className="page-subtitle">See current opportunities before signup. Personal scoring starts after login.</p>
+
+        <div className="mt-4 grid gap-2 md:grid-cols-[1fr_220px]">
+          <div className="flex flex-wrap gap-2">
+            <button type="button" className={`btn-secondary ${sourceType === 'all' ? 'border-brand-500 text-brand-700' : ''}`} onClick={() => setSourceType('all')}>All Sources</button>
+            <button type="button" className={`btn-secondary ${sourceType === 'ppmo' ? 'border-brand-500 text-brand-700' : ''}`} onClick={() => setSourceType('ppmo')}>PPMO Tenders</button>
+            <button type="button" className={`btn-secondary ${sourceType === 'private' ? 'border-brand-500 text-brand-700' : ''}`} onClick={() => setSourceType('private')}>Private Tenders</button>
+          </div>
+
+          <select className="input" value={categoryFilter} onChange={(event) => setCategoryFilter(event.target.value)}>
+            <option value="all">All Categories</option>
+            <option value="Works">Works</option>
+            <option value="Goods">Goods</option>
+            <option value="Consulting">Consulting</option>
+            <option value="Other">Other</option>
+          </select>
+        </div>
 
         <div className="mt-5 grid gap-3 md:grid-cols-2 lg:grid-cols-3">
           {items.map((item) => (
@@ -164,6 +262,7 @@ export const LandingPage = () => {
                 <span className="rounded-full bg-slate-100 px-2.5 py-1 text-xs font-semibold text-slate-700">{item.category}</span>
                 <span className="rounded-full bg-amber-100 px-2.5 py-1 text-xs font-semibold text-amber-700">{formatCountdown(item.deadlineAt)}</span>
               </div>
+              <p className="mt-2 text-[11px] font-semibold uppercase tracking-wide text-brand-700">{item.sourceType === 'private' ? 'Private Organization' : 'PPMO'}</p>
               <h4 className="mt-3 line-clamp-2 text-base font-semibold">{item.title}</h4>
               <p className="mt-2 text-sm text-muted">{item.procuringEntity}</p>
               <p className="mt-2 text-xs font-semibold text-slate-700">{formatNpr(item.amount)}</p>
@@ -173,7 +272,7 @@ export const LandingPage = () => {
         </div>
       </section>
 
-      <section id="why-avasar" className="card mt-4 grid gap-4 p-6 md:grid-cols-[1.4fr_1fr] md:p-8">
+      <section id="why-avasar" className="landing-section card mt-4 grid gap-4 p-6 md:grid-cols-[1.4fr_1fr] md:p-8">
         <article>
           <h3 className="page-title text-2xl">Why Vendors Choose Avasar Patra</h3>
           <p className="page-subtitle max-w-2xl">Most portals are noisy and hard to prioritize. Avasar Patra keeps decision-making simple and practical.</p>
@@ -189,12 +288,74 @@ export const LandingPage = () => {
 
         <article className="rounded-2xl border border-brand-200 bg-brand-50 p-4">
           <h4 className="text-lg font-semibold">Ready to start?</h4>
-          <p className="mt-2 text-sm text-slate-700">Set your profile, shortlist tenders, and organize submission readiness in minutes.</p>
+          <p className="mt-2 text-sm text-slate-700">Set your professional profile, shortlist tenders, and organize submission readiness in minutes.</p>
           <div className="mt-4 flex flex-wrap gap-2">
-            <Link to="/signup" className="btn-primary">Start Free</Link>
-            <Link to="/login" className="btn-secondary">Login</Link>
+            <Link to="/access" className="btn-primary">Open Access Portal</Link>
           </div>
         </article>
+      </section>
+
+      <section id="pricing" className="landing-section card mt-4 p-6 md:p-8">
+        <div className="flex flex-col gap-3 md:flex-row md:items-end md:justify-between">
+          <div>
+            <p className="text-xs font-semibold uppercase tracking-wide text-brand-700">Pricing</p>
+            <h3 className="page-title text-2xl">Simple Role-Based Plans</h3>
+            <p className="page-subtitle max-w-3xl">
+              Start free for core workflows, then upgrade with role-based subscriptions for Vendors and Publishers (Organizations).
+            </p>
+          </div>
+          <span className="rounded-full border border-brand-200 bg-brand-50 px-3 py-1 text-xs font-semibold text-brand-700">
+            15-day free trial available
+          </span>
+        </div>
+
+        <div className="mt-5 flex flex-wrap items-center justify-center gap-2 rounded-xl border border-slate-200 bg-slate-50 p-1">
+          <button
+            type="button"
+            className={`rounded-lg px-4 py-2 text-sm font-semibold ${pricingAudience === 'vendor' ? 'bg-white text-brand-700 shadow-soft' : 'text-slate-600'}`}
+            onClick={() => setPricingAudience('vendor')}
+          >
+            For Vendors
+          </button>
+          <button
+            type="button"
+            className={`rounded-lg px-4 py-2 text-sm font-semibold ${pricingAudience === 'publisher' ? 'bg-white text-brand-700 shadow-soft' : 'text-slate-600'}`}
+            onClick={() => setPricingAudience('publisher')}
+          >
+            For Publishers
+          </button>
+          <span className="w-full text-center text-xs font-semibold uppercase tracking-wide text-slate-500">{rolePlans[pricingAudience].roleLabel}</span>
+        </div>
+
+        <div className="mt-4 grid gap-4 lg:grid-cols-2">
+          {visiblePlans.map((plan) => (
+            <article
+              key={plan.name}
+              className="rounded-2xl border border-slate-200 bg-white p-5"
+            >
+              <h4 className="text-lg font-bold">{plan.name}</h4>
+              <p className="mt-2 text-2xl font-bold text-ink">{plan.price}</p>
+              <p className="mt-1 text-sm text-muted">{plan.subtitle}</p>
+
+              <ul className="mt-4 grid gap-2">
+                {plan.features.map((feature) => (
+                  <li key={feature} className="flex items-start gap-2 text-sm text-slate-700">
+                    <CheckCircle2 size={15} className="mt-0.5 text-brand-700" />
+                    {feature}
+                  </li>
+                ))}
+              </ul>
+
+              <button type="button" className={`mt-5 w-full ${plan.price === 'Free' ? 'btn-secondary' : 'btn-primary'}`}>
+                {plan.cta}
+              </button>
+            </article>
+          ))}
+        </div>
+
+        <p className="mt-4 text-xs text-slate-500">
+          Subscription checkout is currently demo-only for hackathon presentation. Pricing and offers shown here represent the planned go-to-market model.
+        </p>
       </section>
 
       <footer className="card mt-4 flex flex-col gap-3 p-4 md:flex-row md:items-center md:justify-between">
@@ -204,9 +365,10 @@ export const LandingPage = () => {
           <p className="mt-1 text-xs text-slate-500">Copyright InFISAN Tech</p>
         </div>
         <div className="flex flex-wrap gap-2 text-xs">
-          <a href="#how-it-works" className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-slate-600">How It Works</a>
-          <a href="#live-notices" className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-slate-600">Live Notices</a>
-          <Link to="/signup" className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-slate-600">Create Account</Link>
+          <a href="#how-it-works" className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-slate-600" onClick={(event) => scrollToSection(event, 'how-it-works')}>How It Works</a>
+          <a href="#live-notices" className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-slate-600" onClick={(event) => scrollToSection(event, 'live-notices')}>Live Notices</a>
+          <a href="#pricing" className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-slate-600" onClick={(event) => scrollToSection(event, 'pricing')}>Pricing</a>
+          <Link to="/access" className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-slate-600">Login / Register</Link>
         </div>
       </footer>
     </div>

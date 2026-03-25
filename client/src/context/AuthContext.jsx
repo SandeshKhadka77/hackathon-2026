@@ -59,12 +59,21 @@ export const AuthProvider = ({ children }) => {
     const response = await api.post('/auth/login', payload);
     syncToken(response.data.token);
     setUser(response.data.user);
+    return response.data.user;
   }, [syncToken]);
 
   const register = useCallback(async (payload) => {
     const response = await api.post('/auth/register', payload);
     syncToken(response.data.token);
     setUser(response.data.user);
+    return response.data.user;
+  }, [syncToken]);
+
+  const registerOrganization = useCallback(async (payload) => {
+    const response = await api.post('/auth/register-organization', payload);
+    syncToken(response.data.token);
+    setUser(response.data.user);
+    return response.data.user;
   }, [syncToken]);
 
   const logout = useCallback(() => {
@@ -84,6 +93,7 @@ export const AuthProvider = ({ children }) => {
     isAuthenticated: !!token,
     login,
     register,
+    registerOrganization,
     logout,
     refreshUser,
   };

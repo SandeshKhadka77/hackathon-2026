@@ -2,12 +2,17 @@ import { ArrowLeft, BarChart3, Bell, Bookmark, ClipboardCheck, FileText, Home, L
 import { Link, NavLink, useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from '../hooks/useAuth';
 
-const navItems = [
+const vendorNavItems = [
   { to: '/dashboard', label: 'Feed', icon: Home },
   { to: '/brief', label: 'Boardroom', icon: BarChart3 },
   { to: '/bookmarks', label: 'Tracked', icon: Bookmark },
   { to: '/operations', label: 'Operations', icon: ClipboardCheck },
   { to: '/vault', label: 'Document Vault', icon: FileText },
+  { to: '/notifications', label: 'Alerts', icon: Bell },
+];
+
+const organizationNavItems = [
+  { to: '/organization', label: 'Publisher Portal', icon: FileText },
   { to: '/notifications', label: 'Alerts', icon: Bell },
 ];
 
@@ -24,7 +29,15 @@ const formatRole = (role) => {
     return 'Vendor';
   }
 
-  return role === 'admin' ? 'Admin' : 'Vendor';
+  if (role === 'admin') {
+    return 'Admin';
+  }
+
+  if (role === 'organization') {
+    return 'Publisher';
+  }
+
+  return 'Vendor';
 };
 
 const getDaysLeft = (dateValue) => {
@@ -70,8 +83,10 @@ export const Layout = ({ children }) => {
   const navigate = useNavigate();
   const location = useLocation();
   const bidReadyScore = calculateBidReadyScore(user?.documents || {});
+  const navItems = user?.role === 'organization' ? organizationNavItems : vendorNavItems;
 
-  const showBackButton = location.pathname !== '/dashboard';
+  const homePath = user?.role === 'organization' ? '/organization' : '/dashboard';
+  const showBackButton = location.pathname !== homePath;
 
   const goBack = () => {
     if (window.history.length > 1) {
@@ -79,7 +94,7 @@ export const Layout = ({ children }) => {
       return;
     }
 
-    navigate('/dashboard');
+    navigate(homePath);
   };
 
   return (
@@ -104,7 +119,7 @@ export const Layout = ({ children }) => {
 
         <div className="flex items-center justify-between rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 md:justify-start md:gap-3">
           <div className="min-w-0">
-            <p className="truncate text-sm font-semibold text-slate-800">{user?.name || 'Vendor User'}</p>
+            <p className="truncate text-sm font-semibold text-slate-800">{user?.name || (user?.role === 'organization' ? 'Publisher User' : 'Vendor User')}</p>
             <p className="text-xs text-slate-500">{user?.district || 'Nepal'} | {formatRole(user?.role)}</p>
           </div>
           {user?.role === 'admin' ? <ShieldCheck size={16} /> : null}
@@ -115,14 +130,18 @@ export const Layout = ({ children }) => {
         <aside className="card h-max p-3 lg:sticky lg:top-24">
           <div className="mb-3 rounded-xl bg-slate-50 p-3">
             <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Navigation</p>
-            <h2 className="mt-1 text-lg font-bold">Dashboard</h2>
-            <div className="mt-3">
-              <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Bid-ready Score</p>
-              <div className="mt-1 h-2 w-full overflow-hidden rounded-full bg-slate-200">
-                <div className="h-full rounded-full bg-brand-600" style={{ width: `${bidReadyScore}%` }} />
+            <h2 className="mt-1 text-lg font-bold">{user?.role === 'organization' ? 'Publishing' : 'Dashboard'}</h2>
+            {user?.role !== 'organization' ? (
+              <div className="mt-3">
+                <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Bid-ready Score</p>
+                <div className="mt-1 h-2 w-full overflow-hidden rounded-full bg-slate-200">
+                  <div className="h-full rounded-full bg-brand-600" style={{ width: `${bidReadyScore}%` }} />
+                </div>
+                <p className="mt-1 text-xs font-semibold text-slate-700">{bidReadyScore}%</p>
               </div>
-              <p className="mt-1 text-xs font-semibold text-slate-700">{bidReadyScore}%</p>
-            </div>
+            ) : (
+              <p className="mt-2 text-xs text-slate-600">Publish private tenders and reach verified vendors.</p>
+            )}
           </div>
 
           <nav className="grid gap-2">
@@ -156,12 +175,12 @@ export const Layout = ({ children }) => {
           <footer className="card flex flex-col justify-between gap-4 p-4 md:flex-row md:items-center">
             <div>
               <h4 className="text-sm font-bold">Avasar Patra Workspace</h4>
-              <p className="text-sm text-muted">Built for faster bid decisions, easier teamwork, and better vendor readiness.</p>
+              <p className="text-sm text-muted">Built for faster procurement decisions, tighter execution, and role-based operational clarity.</p>
               <p className="mt-1 text-xs text-slate-500">Copyright iFISAN Tech</p>
             </div>
             <div className="flex flex-wrap gap-2 text-xs font-medium text-slate-600">
               <span className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1">Profile matching</span>
-              <span className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1">Ops workflow</span>
+              <span className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1">Publisher workflow</span>
             </div>
           </footer>
         </main>

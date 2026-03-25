@@ -49,7 +49,7 @@ const UserSchema = new mongoose.Schema(
       default: 'Other',
     },
     capacity: { type: Number, required: true, min: 0 },
-    role: { type: String, enum: ['user', 'admin'], default: 'user' },
+    role: { type: String, enum: ['user', 'admin', 'organization'], default: 'user' },
     expertiseTags: [{ type: String, trim: true }],
     bookmarks: [{ type: mongoose.Schema.Types.ObjectId, ref: 'Tender' }],
     documents: {

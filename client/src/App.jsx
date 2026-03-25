@@ -8,29 +8,35 @@ import { BoardroomBriefPage } from './pages/BoardroomBriefPage';
 import { BookmarksPage } from './pages/BookmarksPage';
 import { LandingPage } from './pages/LandingPage';
 import { NotificationsPage } from './pages/NotificationsPage';
+import { OrganizationPortalPage } from './pages/OrganizationPortalPage';
 import { OperationsPage } from './pages/OperationsPage';
 import { TenderFeedPage } from './pages/TenderFeedPage';
 import { VaultPage } from './pages/VaultPage';
 
 function App() {
-  const { isAuthenticated } = useAuth();
+  const { isAuthenticated, user } = useAuth();
+  const homeRoute = user?.role === 'organization' ? '/organization' : '/dashboard';
 
   return (
     <Routes>
       <Route path="/" element={<LandingPage />} />
       <Route
+        path="/access"
+        element={isAuthenticated ? <Navigate to={homeRoute} replace /> : <AuthPage />}
+      />
+      <Route
         path="/login"
-        element={isAuthenticated ? <Navigate to="/dashboard" replace /> : <AuthPage mode="login" />}
+        element={<Navigate to="/access?tab=login" replace />}
       />
       <Route
         path="/signup"
-        element={isAuthenticated ? <Navigate to="/dashboard" replace /> : <AuthPage mode="signup" />}
+        element={<Navigate to="/access?tab=signup" replace />}
       />
 
       <Route
         path="/dashboard"
         element={
-          <ProtectedRoute>
+          <ProtectedRoute allowedRoles={['user', 'admin']}>
             <Layout>
               <TenderFeedPage />
             </Layout>
@@ -41,7 +47,7 @@ function App() {
       <Route
         path="/brief"
         element={
-          <ProtectedRoute>
+          <ProtectedRoute allowedRoles={['user', 'admin']}>
             <Layout>
               <BoardroomBriefPage />
             </Layout>
@@ -52,7 +58,7 @@ function App() {
       <Route
         path="/bookmarks"
         element={
-          <ProtectedRoute>
+          <ProtectedRoute allowedRoles={['user', 'admin']}>
             <Layout>
               <BookmarksPage />
             </Layout>
@@ -63,7 +69,7 @@ function App() {
       <Route
         path="/vault"
         element={
-          <ProtectedRoute>
+          <ProtectedRoute allowedRoles={['user', 'admin']}>
             <Layout>
               <VaultPage />
             </Layout>
@@ -74,7 +80,7 @@ function App() {
       <Route
         path="/operations"
         element={
-          <ProtectedRoute>
+          <ProtectedRoute allowedRoles={['user', 'admin']}>
             <Layout>
               <OperationsPage />
             </Layout>
@@ -88,6 +94,17 @@ function App() {
           <ProtectedRoute>
             <Layout>
               <NotificationsPage />
+            </Layout>
+          </ProtectedRoute>
+        }
+      />
+
+      <Route
+        path="/organization"
+        element={
+          <ProtectedRoute allowedRoles={['organization', 'admin']}>
+            <Layout>
+              <OrganizationPortalPage />
             </Layout>
           </ProtectedRoute>
         }

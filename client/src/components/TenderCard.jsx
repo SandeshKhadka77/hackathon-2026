@@ -50,6 +50,9 @@ export const TenderCard = ({ tender, isBookmarked, onBookmark, onOpen }) => {
 
       <h3 className="mt-3 line-clamp-2 text-base font-semibold">{tender.title}</h3>
       <p className="mt-1 text-sm text-muted">{tender.procuringEntity}</p>
+      <p className="mt-1 text-xs font-semibold uppercase tracking-wide text-brand-700">
+        {tender.sourceType === 'private' ? 'Private Organization' : 'PPMO'}
+      </p>
 
       <div className="mt-3 grid gap-2 text-sm text-slate-600">
         <span className="flex items-center gap-2">
