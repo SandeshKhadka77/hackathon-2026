@@ -30,6 +30,7 @@ export const OperationsPage = () => {
   const [assignment, setAssignment] = useState({ memberName: '', role: '', task: '', dueAt: '' });
   const [outcome, setOutcome] = useState({ result: 'pending', reason: '', learning: '' });
   const [simulation, setSimulation] = useState(null);
+  const [autoPlanResult, setAutoPlanResult] = useState(null);
   const [simulating, setSimulating] = useState(false);
   const [autoPlanning, setAutoPlanning] = useState(false);
 
@@ -66,6 +67,33 @@ export const OperationsPage = () => {
     })();
   }, [loadBoard]);
 
+  const selectedPipeline = useMemo(
+    () => board.pipelines.find((item) => item.tender?._id === selectedTenderId) || null,
+    [board.pipelines, selectedTenderId]
+  );
+
+  useEffect(() => {
+    if (!selectedPipeline?.estimate) {
+      return;
+    }
+
+    const nextEstimate = selectedPipeline.estimate || {};
+    setEstimate((prev) => ({
+      ...prev,
+      emdAmount: nextEstimate.emdAmount ?? '',
+      documentCost: nextEstimate.documentCost ?? '',
+      logisticsCost: nextEstimate.logisticsCost ?? '',
+      laborCost: nextEstimate.laborCost ?? '',
+      contingencyCost: nextEstimate.contingencyCost ?? '',
+      notes: nextEstimate.notes || '',
+    }));
+  }, [selectedPipeline?.tender?._id, selectedPipeline?.estimate]);
+
+  useEffect(() => {
+    setSimulation(null);
+    setAutoPlanResult(null);
+  }, [selectedTenderId]);
+
   const estimatedTotal = useMemo(() => {
     const num = (value) => Number(value || 0);
     return num(estimate.emdAmount) + num(estimate.documentCost) + num(estimate.logisticsCost) + num(estimate.laborCost) + num(estimate.contingencyCost);
@@ -99,7 +127,7 @@ export const OperationsPage = () => {
       setSimulating(true);
       const response = await api.post('/operations/simulate', { tenderId: selectedTenderId, ...estimate });
       setSimulation(response.data || null);
-      setStatus('What-if simulation updated.');
+      setStatus('Feasibility analysis updated. Review cost risk and recommendation below.');
     } catch (error) {
       setStatus(error.response?.data?.message || 'Failed to run what-if simulation.');
     } finally {
@@ -116,7 +144,8 @@ export const OperationsPage = () => {
     try {
       setAutoPlanning(true);
       const response = await api.post('/operations/auto-plan', { tenderId: selectedTenderId });
-      setStatus(response.data.message || 'Auto plan generated.');
+      setAutoPlanResult(response.data || null);
+      setStatus(response.data.message || 'Execution plan generated.');
       await loadBoard();
     } catch (error) {
       setStatus(error.response?.data?.message || 'Failed to generate auto plan.');
@@ -176,6 +205,40 @@ export const OperationsPage = () => {
     }
   };
 
+  const selectedTender = useMemo(
+    () => board.trackedTenders.find((item) => item._id === selectedTenderId) || null,
+    [board.trackedTenders, selectedTenderId]
+  );
+
+  const workflowSteps = useMemo(() => {
+    const readiness = board.summary.readinessScore || 0;
+    const taskProgress = selectedPipeline?.assignmentProgress || 0;
+    const feasibility = simulation?.feasibilityScore || selectedPipeline?.feasibilityScore || 0;
+
+    return [
+      {
+        title: '1. Compliance Ready',
+        score: readiness,
+        detail: 'Upload and validate core documents before bid preparation.',
+      },
+      {
+        title: '2. Cost Feasibility',
+        score: feasibility,
+        detail: 'Use cost inputs to test whether this bid is budget-safe.',
+      },
+      {
+        title: '3. Task Execution',
+        score: taskProgress,
+        detail: 'Assign and complete execution tasks on time.',
+      },
+      {
+        title: '4. Outcome Capture',
+        score: selectedPipeline?.outcome?.result && selectedPipeline.outcome.result !== 'pending' ? 100 : 20,
+        detail: 'Record result and learning for future bid quality.',
+      },
+    ];
+  }, [board.summary.readinessScore, selectedPipeline, simulation]);
+
   return (
     <section className="space-y-4">
       <article className="card p-5 md:p-6">
@@ -183,7 +246,7 @@ export const OperationsPage = () => {
           <div>
             <p className="text-xs font-semibold uppercase tracking-wide text-brand-700">Execution</p>
             <h2 className="page-title">Operations Workspace</h2>
-            <p className="page-subtitle">Track readiness, assign tasks, estimate costs, and capture outcomes.</p>
+            <p className="page-subtitle">A guided workspace to decide, prepare, execute, and learn from each tender bid.</p>
           </div>
           <div className="grid grid-cols-3 gap-2">
             <div className="kpi-card"><p className="text-xs text-slate-500">Readiness</p><p className="text-lg font-bold">{board.summary.readinessScore}%</p></div>
@@ -204,13 +267,34 @@ export const OperationsPage = () => {
           </label>
         </div>
 
+        {selectedTender ? (
+          <div className="mt-3 rounded-xl border border-slate-200 bg-slate-50 p-3 text-sm text-slate-700">
+            <p className="font-semibold text-slate-800">Selected Tender</p>
+            <p className="mt-1">{selectedTender.title}</p>
+            <p className="mt-1 text-xs text-slate-500">
+              {selectedTender.tenderId} | {selectedTender.category} | {selectedTender.district}
+            </p>
+          </div>
+        ) : null}
+
         <div className="mt-4 flex flex-wrap gap-2">
           <button type="button" className="btn-secondary" onClick={runSimulation} disabled={simulating}>
-            {simulating ? 'Simulating...' : 'Run What-If'}
+            {simulating ? 'Analyzing...' : 'Analyze Feasibility'}
           </button>
           <button type="button" className="btn-primary" onClick={generateAutoPlan} disabled={autoPlanning}>
-            {autoPlanning ? 'Generating...' : 'Auto-Generate Plan'}
+            {autoPlanning ? 'Generating...' : 'Generate Task Plan'}
           </button>
+        </div>
+
+        <div className="mt-4 grid gap-3 md:grid-cols-2">
+          <div className="rounded-xl border border-slate-200 p-3 text-sm text-slate-700">
+            <p className="font-semibold text-slate-800">What does Analyze Feasibility do?</p>
+            <p className="mt-1">It simulates your cost assumptions and returns budget fit, risk level, and go/hold/no-go guidance.</p>
+          </div>
+          <div className="rounded-xl border border-slate-200 p-3 text-sm text-slate-700">
+            <p className="font-semibold text-slate-800">What does Generate Task Plan do?</p>
+            <p className="mt-1">It creates smart execution tasks from category checklist and deadline urgency, avoiding duplicates.</p>
+          </div>
         </div>
       </article>
 
@@ -218,12 +302,19 @@ export const OperationsPage = () => {
       {loading ? <div className="status-info">Loading operations board...</div> : null}
 
       <div className="grid gap-3 lg:grid-cols-4">
-        <article className="card p-4">
-          <h3 className="section-title">Readiness Snapshot</h3>
-          <div className="mt-3 grid gap-2 text-sm">
-            <div className="kpi-card"><p>Document Readiness</p><p className="font-bold">{board.summary.readinessScore}%</p></div>
-            <div className="kpi-card"><p>Avg Feasibility</p><p className="font-bold">{board.summary.averageFeasibility}%</p></div>
-            <div className="kpi-card"><p>Task Progress</p><p className="font-bold">{board.summary.averageAssignmentProgress}%</p></div>
+        <article className="card p-4 lg:col-span-4">
+          <h3 className="section-title">Vendor Workflow Progress</h3>
+          <div className="mt-3 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+            {workflowSteps.map((step) => (
+              <div key={step.title} className="rounded-xl border border-slate-200 p-3">
+                <p className="text-sm font-semibold text-slate-800">{step.title}</p>
+                <div className="mt-2 h-2 w-full overflow-hidden rounded-full bg-slate-200">
+                  <div className="h-full rounded-full bg-brand-600" style={{ width: `${Math.max(0, Math.min(100, step.score))}%` }} />
+                </div>
+                <p className="mt-2 text-sm font-bold">{Math.max(0, Math.min(100, step.score))}%</p>
+                <p className="mt-1 text-xs text-slate-500">{step.detail}</p>
+              </div>
+            ))}
           </div>
         </article>
 
@@ -260,7 +351,7 @@ export const OperationsPage = () => {
             <div className="flex flex-wrap gap-2">
               <button type="submit" className="btn-primary">Save Estimate</button>
               <button type="button" className="btn-secondary" onClick={runSimulation} disabled={simulating}>
-                {simulating ? 'Simulating...' : 'Simulate Impact'}
+                {simulating ? 'Analyzing...' : 'Analyze Impact'}
               </button>
             </div>
           </form>
@@ -275,6 +366,16 @@ export const OperationsPage = () => {
                 <div className="kpi-card"><p className="text-xs text-slate-500">Decision</p><p className="font-bold">{simulation.recommendation?.label || 'N/A'}</p></div>
               </div>
               <p className="mt-2 text-xs text-slate-600">{simulation.note}</p>
+            </div>
+          ) : null}
+
+          {autoPlanResult ? (
+            <div className="mt-3 rounded-xl border border-slate-200 bg-white p-3">
+              <h4 className="text-sm font-semibold text-slate-800">Generated Task Plan Summary</h4>
+              <p className="mt-1 text-xs text-slate-600">Tasks added: {autoPlanResult.generatedCount || 0}</p>
+              <p className="mt-1 text-xs text-slate-600">
+                Recommendation: {autoPlanResult.recommendation?.label || 'N/A'}
+              </p>
             </div>
           ) : null}
         </article>
@@ -318,7 +419,7 @@ export const OperationsPage = () => {
       <article className="card p-4">
         <h3 className="section-title">Assignment Tracker</h3>
         <div className="mt-3 grid gap-3">
-          {board.pipelines.flatMap((pipeline) =>
+          {(selectedPipeline ? [selectedPipeline] : board.pipelines).flatMap((pipeline) =>
             (pipeline.assignments || []).map((item) => (
               <div key={item._id} className="rounded-xl border border-slate-200 p-3">
                 <p className="text-sm font-semibold">{item.task}</p>
@@ -329,6 +430,7 @@ export const OperationsPage = () => {
             ))
           )}
         </div>
+        {selectedPipeline ? <p className="mt-3 text-xs text-slate-500">Showing assignments for selected tender only.</p> : null}
       </article>
     </section>
   );

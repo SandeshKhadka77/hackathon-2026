@@ -1,5 +1,4 @@
 import { ArrowLeft, BarChart3, Bell, Bookmark, ClipboardCheck, FileText, Home, LogOut, ShieldCheck } from 'lucide-react';
-import { PiCompassRoseBold } from 'react-icons/pi';
 import { Link, NavLink, useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from '../hooks/useAuth';
 
@@ -28,10 +27,49 @@ const formatRole = (role) => {
   return role === 'admin' ? 'Admin' : 'Vendor';
 };
 
+const getDaysLeft = (dateValue) => {
+  if (!dateValue) {
+    return null;
+  }
+
+  const value = new Date(dateValue).getTime();
+  if (Number.isNaN(value)) {
+    return null;
+  }
+
+  return Math.ceil((value - Date.now()) / (1000 * 60 * 60 * 24));
+};
+
+const calculateBidReadyScore = (documents = {}) => {
+  const keys = ['panVat', 'taxClearance', 'companyRegistration'];
+  let score = 0;
+
+  keys.forEach((key) => {
+    const doc = documents?.[key];
+    if (!doc) {
+      return;
+    }
+
+    const daysLeft = getDaysLeft(doc.expiresAt);
+    if (daysLeft == null) {
+      score += 33;
+      return;
+    }
+
+    if (daysLeft < 0) score += 5;
+    else if (daysLeft <= 7) score += 18;
+    else if (daysLeft <= 30) score += 24;
+    else score += 33;
+  });
+
+  return Math.max(0, Math.min(100, Math.round(score)));
+};
+
 export const Layout = ({ children }) => {
   const { user, logout } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
+  const bidReadyScore = calculateBidReadyScore(user?.documents || {});
 
   const showBackButton = location.pathname !== '/dashboard';
 
@@ -55,11 +93,12 @@ export const Layout = ({ children }) => {
           ) : null}
 
           <Link to="/" className="flex items-center gap-3">
-            <div className="grid h-10 w-10 place-items-center rounded-xl bg-brand-600 text-white">
-              <PiCompassRoseBold size={20} />
+            <div className="rounded-xl border border-brand-200 bg-brand-50 px-3 py-2 text-[11px] font-black uppercase leading-tight tracking-wider text-brand-700">
+              <div>avasar</div>
+              <div>patra</div>
             </div>
             <div>
-              <h1 className="text-base font-bold">अवसर PATRA</h1>
+              <h1 className="text-base font-bold">अवसर पत्र</h1>
               <p className="text-xs text-muted">Avasar Patra Workspace</p>
             </div>
           </Link>
@@ -81,6 +120,13 @@ export const Layout = ({ children }) => {
           <div className="mb-3 rounded-xl bg-slate-50 p-3">
             <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Navigation</p>
             <h2 className="mt-1 text-lg font-bold">Dashboard</h2>
+            <div className="mt-3">
+              <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Bid-ready Score</p>
+              <div className="mt-1 h-2 w-full overflow-hidden rounded-full bg-slate-200">
+                <div className="h-full rounded-full bg-brand-600" style={{ width: `${bidReadyScore}%` }} />
+              </div>
+              <p className="mt-1 text-xs font-semibold text-slate-700">{bidReadyScore}%</p>
+            </div>
           </div>
 
           <nav className="grid gap-2">

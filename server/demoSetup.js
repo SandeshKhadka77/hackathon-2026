@@ -11,6 +11,105 @@ const { calculateMatchPercent } = require('./utils/matching');
 
 const MONGO_URI = process.env.MONGO_URI || 'mongodb://127.0.0.1:27017/hackathon_db';
 
+const CURATED_DEMO_TENDERS = [
+  {
+    tenderId: 'DEMO-AP-2026-001',
+    title: 'Blacktop and Drainage Improvement - Tokha Municipality',
+    procuringEntity: 'Tokha Municipality Office',
+    category: 'Works',
+    location: 'Tokha, Kathmandu',
+    district: 'Kathmandu',
+    amount: 17500000,
+    deadlineRaw: '15-04-2026 12:00',
+    deadlineAt: new Date(Date.now() + 14 * 24 * 60 * 60 * 1000),
+    detailUrl: 'https://example.org/demo/tenders/001',
+    noticeUrl: 'https://example.org/demo/tenders/001-notice.pdf',
+  },
+  {
+    tenderId: 'DEMO-AP-2026-002',
+    title: 'Supply and Installation of ICU Monitoring Equipment',
+    procuringEntity: 'Province Hospital Procurement Unit',
+    category: 'Goods',
+    location: 'Maharajgunj, Kathmandu',
+    district: 'Kathmandu',
+    amount: 9800000,
+    deadlineRaw: '18-04-2026 13:00',
+    deadlineAt: new Date(Date.now() + 17 * 24 * 60 * 60 * 1000),
+    detailUrl: 'https://example.org/demo/tenders/002',
+    noticeUrl: 'https://example.org/demo/tenders/002-notice.pdf',
+  },
+  {
+    tenderId: 'DEMO-AP-2026-003',
+    title: 'Bridge Rehabilitation and Retaining Wall Construction',
+    procuringEntity: 'Department of Roads - Bagmati Division',
+    category: 'Works',
+    location: 'Kakani, Nuwakot',
+    district: 'Nuwakot',
+    amount: 21000000,
+    deadlineRaw: '20-04-2026 12:30',
+    deadlineAt: new Date(Date.now() + 19 * 24 * 60 * 60 * 1000),
+    detailUrl: 'https://example.org/demo/tenders/003',
+    noticeUrl: 'https://example.org/demo/tenders/003-notice.pdf',
+  },
+  {
+    tenderId: 'DEMO-AP-2026-004',
+    title: 'Consultancy for Detailed Engineering Design of Rural Roads',
+    procuringEntity: 'Infrastructure Development Office',
+    category: 'Consulting',
+    location: 'Dhulikhel, Kavrepalanchok',
+    district: 'Kavrepalanchok',
+    amount: 4200000,
+    deadlineRaw: '25-04-2026 11:00',
+    deadlineAt: new Date(Date.now() + 24 * 24 * 60 * 60 * 1000),
+    detailUrl: 'https://example.org/demo/tenders/004',
+    noticeUrl: 'https://example.org/demo/tenders/004-notice.pdf',
+  },
+  {
+    tenderId: 'DEMO-AP-2026-005',
+    title: 'Supply of Construction Materials for Ward Infrastructure Program',
+    procuringEntity: 'Biratnagar Metropolitan Office',
+    category: 'Goods',
+    location: 'Biratnagar, Morang',
+    district: 'Morang',
+    amount: 6500000,
+    deadlineRaw: '28-04-2026 15:00',
+    deadlineAt: new Date(Date.now() + 27 * 24 * 60 * 60 * 1000),
+    detailUrl: 'https://example.org/demo/tenders/005',
+    noticeUrl: 'https://example.org/demo/tenders/005-notice.pdf',
+  },
+];
+
+const CURATED_TENDER_IDS = new Set(CURATED_DEMO_TENDERS.map((item) => item.tenderId));
+
+const ensureCuratedDemoTenders = async () => {
+  for (const item of CURATED_DEMO_TENDERS) {
+    const documentLinks = [
+      { label: 'Notice PDF', url: item.noticeUrl, type: 'pdf' },
+      { label: 'Detail Page', url: item.detailUrl, type: 'detail' },
+    ];
+
+    await Tender.updateOne(
+      { tenderId: item.tenderId },
+      {
+        $set: {
+          ...item,
+          documentLinks,
+          sourceUrl: item.detailUrl,
+          sourceFingerprint: `demo-${item.tenderId}`,
+          scrapeRunId: 'demo-curated',
+          parseConfidence: 99,
+          sourcePage: 1,
+          sourcePosition: 1,
+          isActive: true,
+          lastSeenAt: new Date(),
+          scrapedAt: new Date(),
+        },
+      },
+      { upsert: true }
+    );
+  }
+};
+
 const ensureDemoUsers = async () => {
   const userPasswordHash = await bcrypt.hash('DemoPass123', 10);
   const adminPasswordHash = await bcrypt.hash('AdminPass123', 10);
@@ -170,6 +269,22 @@ const setupNotifications = async (demoUser, tenders) => {
   }
 };
 
+const prioritizeDemoTenders = (items = []) => {
+  const curated = [];
+  const others = [];
+
+  items.forEach((item) => {
+    if (CURATED_TENDER_IDS.has(item.tenderId)) {
+      curated.push(item);
+      return;
+    }
+
+    others.push(item);
+  });
+
+  return [...curated, ...others];
+};
+
 const run = async () => {
   try {
     await mongoose.connect(MONGO_URI);
@@ -179,12 +294,17 @@ const run = async () => {
     const scrapeResult = await runScraperAndUpsert();
     console.log('[demo] scraper result:', scrapeResult);
 
+    // Curated tenders guarantee complete, presentation-ready records for demo storytelling.
+    await ensureCuratedDemoTenders();
+
     const { demoUser } = await ensureDemoUsers();
 
-    const tenders = await Tender.find({ isActive: true }).sort({ deadlineAt: 1, createdAt: -1 }).limit(20);
-    if (!tenders.length) {
+    const activeTenders = await Tender.find({ isActive: true }).sort({ deadlineAt: 1, createdAt: -1 }).limit(60);
+    if (!activeTenders.length) {
       throw new Error('No tenders found after scrape. Check scraper source availability.');
     }
+
+    const tenders = prioritizeDemoTenders(activeTenders).slice(0, 20);
 
     await setupBookmarksAndPipelines(demoUser, tenders);
     await setupNotifications(demoUser, tenders);

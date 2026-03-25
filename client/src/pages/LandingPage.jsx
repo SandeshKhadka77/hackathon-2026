@@ -70,11 +70,12 @@ export const LandingPage = () => {
     <div className="mx-auto max-w-7xl px-4 py-4 md:px-6">
       <header className="card sticky top-3 z-30 flex flex-col gap-3 px-4 py-3 md:flex-row md:items-center md:justify-between">
         <Link to="/" className="flex items-center gap-3">
-          <div className="grid h-10 w-10 place-items-center rounded-xl bg-brand-600 text-white">
-            <PiCompassRoseBold size={20} />
+          <div className="rounded-xl border border-brand-200 bg-brand-50 px-3 py-2 text-[11px] font-black uppercase leading-tight tracking-wider text-brand-700">
+            <div>avasar</div>
+            <div>patra</div>
           </div>
           <div>
-            <h1 className="text-base font-bold">अवसर PATRA</h1>
+            <h1 className="text-base font-bold">अवसर पत्र</h1>
             <p className="text-xs text-muted">Nepal Public Procurement, Simplified</p>
           </div>
         </Link>

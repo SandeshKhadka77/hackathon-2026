@@ -1,5 +1,6 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import api from '../api/client';
+import { useAuth } from '../hooks/useAuth';
 
 const docs = [
   { key: 'panVat', label: 'PAN/VAT Certificate' },
@@ -8,18 +9,43 @@ const docs = [
 ];
 
 export const VaultPage = () => {
+  const { refreshUser } = useAuth();
   const [documents, setDocuments] = useState({});
   const [expiry, setExpiry] = useState({});
+  const [compliance, setCompliance] = useState({
+    bidReadyScore: 0,
+    readinessLabel: 'Critical gaps',
+    blockers: { missingCount: 0, expiredCount: 0, expiringSoonCount: 0 },
+    categoryGuides: [],
+  });
+  const [activeCategory, setActiveCategory] = useState('Works');
   const [expiryInputs, setExpiryInputs] = useState({});
   const [status, setStatus] = useState('');
 
+  const activeGuide =
+    compliance.categoryGuides.find((item) => item.category === activeCategory) ||
+    compliance.categoryGuides[0] ||
+    null;
+
+  const loadVault = useCallback(async () => {
+    const response = await api.get('/documents');
+    setDocuments(response.data.documents || {});
+    setExpiry(response.data.expiry || {});
+    setCompliance(
+      response.data.compliance || {
+        bidReadyScore: 0,
+        readinessLabel: 'Critical gaps',
+        blockers: { missingCount: 0, expiredCount: 0, expiringSoonCount: 0 },
+        categoryGuides: [],
+      }
+    );
+  }, []);
+
   useEffect(() => {
     (async () => {
-      const response = await api.get('/documents');
-      setDocuments(response.data.documents || {});
-      setExpiry(response.data.expiry || {});
+      await loadVault();
     })();
-  }, []);
+  }, [loadVault]);
 
   const upload = async (docType, file) => {
     if (!file) {
@@ -38,8 +64,8 @@ export const VaultPage = () => {
       });
 
       setDocuments(response.data.documents || {});
-      const fresh = await api.get('/documents');
-      setExpiry(fresh.data.expiry || {});
+      await loadVault();
+      await refreshUser();
       setStatus('Upload successful.');
     } catch (error) {
       setStatus(error.response?.data?.message || 'Upload failed.');
@@ -54,8 +80,8 @@ export const VaultPage = () => {
       });
 
       setDocuments(response.data.documents || {});
-      const fresh = await api.get('/documents');
-      setExpiry(fresh.data.expiry || {});
+      await loadVault();
+      await refreshUser();
       setStatus('Expiry updated.');
     } catch (error) {
       setStatus(error.response?.data?.message || 'Failed to update expiry.');
@@ -68,9 +94,74 @@ export const VaultPage = () => {
         <p className="text-xs font-semibold uppercase tracking-wide text-brand-700">Compliance</p>
         <h2 className="page-title">Document Vault</h2>
         <p className="page-subtitle">Keep required files and expiry dates in one clean place.</p>
+
+        <div className="mt-4 grid gap-3 md:grid-cols-4">
+          <div className="kpi-card md:col-span-2">
+            <p className="text-xs text-slate-500">Bid-Ready Score</p>
+            <div className="mt-2 h-2 w-full overflow-hidden rounded-full bg-slate-200">
+              <div className="h-full rounded-full bg-brand-600" style={{ width: `${compliance.bidReadyScore || 0}%` }} />
+            </div>
+            <p className="mt-2 text-xl font-bold">{compliance.bidReadyScore || 0}%</p>
+            <p className="text-xs text-slate-500">{compliance.readinessLabel || 'Critical gaps'}</p>
+          </div>
+          <div className="kpi-card">
+            <p className="text-xs text-slate-500">Missing Docs</p>
+            <p className="mt-2 text-xl font-bold">{compliance.blockers?.missingCount || 0}</p>
+          </div>
+          <div className="kpi-card">
+            <p className="text-xs text-slate-500">Expired Docs</p>
+            <p className="mt-2 text-xl font-bold">{compliance.blockers?.expiredCount || 0}</p>
+          </div>
+        </div>
       </article>
 
       {status ? <div className="status-info">{status}</div> : null}
+
+      <article className="card p-4">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <h3 className="section-title">Smart Checklist Guide</h3>
+          <select className="input max-w-xs" value={activeCategory} onChange={(event) => setActiveCategory(event.target.value)}>
+            {(compliance.categoryGuides || []).map((item) => (
+              <option key={item.category} value={item.category}>{item.category}</option>
+            ))}
+          </select>
+        </div>
+
+        {activeGuide ? (
+          <div className="mt-3 grid gap-3 lg:grid-cols-2">
+            <div className="rounded-xl border border-slate-200 p-3">
+              <p className="text-sm font-semibold text-slate-800">Required Documents</p>
+              <div className="mt-2 space-y-2">
+                {(activeGuide.requiredDocs || []).map((item) => (
+                  <div key={item.key} className="rounded-lg border border-slate-200 p-2">
+                    <p className="text-sm font-semibold text-slate-800">{item.label}</p>
+                    <p className="text-xs text-slate-500">
+                      {!item.available
+                        ? 'Missing'
+                        : item.isExpired
+                          ? 'Expired'
+                          : item.isExpiringSoon
+                            ? `Expiring in ${item.expiresInDays} day(s)`
+                            : 'Available and valid'}
+                    </p>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            <div className="rounded-xl border border-slate-200 p-3">
+              <p className="text-sm font-semibold text-slate-800">Category Guide Items</p>
+              <ul className="mt-2 list-disc space-y-1 pl-5 text-sm text-slate-700">
+                {(activeGuide.checklistItems || []).map((item) => (
+                  <li key={item.label}>{item.label}</li>
+                ))}
+              </ul>
+            </div>
+          </div>
+        ) : (
+          <p className="mt-3 text-sm text-slate-500">Checklist guide will appear after loading compliance data.</p>
+        )}
+      </article>
 
       <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
         {docs.map((doc) => (

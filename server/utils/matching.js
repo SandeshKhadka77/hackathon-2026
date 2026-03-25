@@ -1,6 +1,6 @@
 const { calculateDocumentReadiness, getDaysToDeadline } = require('./scoring');
 
-// Keep scoring/checklist intelligence centralized so feed, operations, and exports stay consistent.
+// Keep scoring checklist intelligence centralized so feed, operations, and exports stay consistent.
 
 const CHECKLIST_MAP = {
   Works: ['Bid Security', 'Work Experience', 'Tax Clearance'],
@@ -33,6 +33,7 @@ const REQUIRED_DOCS = {
 };
 
 const getChecklistForCategory = (category) => CHECKLIST_MAP[category] || CHECKLIST_MAP.Other;
+const getRequiredDocsForCategory = (category) => REQUIRED_DOCS[category] || REQUIRED_DOCS.Other;
 
 const getMatchBreakdown = (tender, user) => {
   if (!user) {
@@ -192,7 +193,7 @@ const getDeadlineRisk = (deadlineAt) => {
 
 const getDocumentGap = (documents = {}, category = 'Other') => {
   // Document readiness is intentionally category-aware to keep checklist and compliance aligned.
-  const required = REQUIRED_DOCS[category] || REQUIRED_DOCS.Other;
+  const required = getRequiredDocsForCategory(category);
   const missing = [];
   const expiringSoon = [];
   const expired = [];
@@ -316,4 +317,5 @@ module.exports = {
   calculateMatchPercent,
   buildMatchInsights,
   getChecklistForCategory,
+  getRequiredDocsForCategory,
 };

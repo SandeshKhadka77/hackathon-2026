@@ -1,9 +1,74 @@
 const User = require('../models/User');
+const { calculateDocumentReadiness } = require('../utils/scoring');
+const { getChecklistForCategory, getRequiredDocsForCategory } = require('../utils/matching');
 
 const ALLOWED_DOC_TYPES = {
   panVat: 'PAN/VAT',
   taxClearance: 'Tax Clearance',
   companyRegistration: 'Company Registration',
+};
+
+const CATEGORY_OPTIONS = ['Works', 'Goods', 'Consulting', 'Other'];
+
+const getReadinessLabel = (score) => {
+  if (score >= 85) return 'Bid-ready';
+  if (score >= 60) return 'Almost ready';
+  if (score >= 35) return 'Needs attention';
+  return 'Critical gaps';
+};
+
+const toDocStatus = (doc) => {
+  if (!doc) {
+    return {
+      available: false,
+      isExpired: false,
+      isExpiringSoon: false,
+      expiresInDays: null,
+    };
+  }
+
+  const expiresInDays = daysUntil(doc.expiresAt);
+
+  return {
+    available: true,
+    isExpired: expiresInDays != null ? expiresInDays < 0 : false,
+    isExpiringSoon: expiresInDays != null ? expiresInDays >= 0 && expiresInDays <= 30 : false,
+    expiresInDays,
+  };
+};
+
+const buildCategoryGuide = (documents = {}, category) => {
+  const requiredDocs = getRequiredDocsForCategory(category).map((item) => {
+    const status = toDocStatus(documents[item.key]);
+
+    return {
+      key: item.key,
+      label: item.label,
+      type: 'document',
+      ...status,
+    };
+  });
+
+  // Checklist items are kept alongside document checks so vendors can act from one screen.
+  const checklistItems = getChecklistForCategory(category).map((item) => ({
+    label: item,
+    type: 'guide',
+  }));
+
+  const missingCount = requiredDocs.filter((item) => !item.available).length;
+  const expiredCount = requiredDocs.filter((item) => item.isExpired).length;
+  const expiringSoonCount = requiredDocs.filter((item) => item.isExpiringSoon).length;
+
+  return {
+    category,
+    requiredDocs,
+    checklistItems,
+    blockers: {
+      missingCount,
+      expiredCount,
+      expiringSoonCount,
+    },
+  };
 };
 
 const daysUntil = (dateValue) => {
@@ -70,7 +135,27 @@ const getDocuments = async (req, res) => {
       return acc;
     }, {});
 
-    return res.json({ documents, expiry });
+    const bidReadyScore = calculateDocumentReadiness(documents);
+    const categoryGuides = CATEGORY_OPTIONS.map((category) => buildCategoryGuide(documents, category));
+    const globalBlockers = categoryGuides.reduce(
+      (acc, item) => ({
+        missingCount: Math.max(acc.missingCount, item.blockers.missingCount),
+        expiredCount: Math.max(acc.expiredCount, item.blockers.expiredCount),
+        expiringSoonCount: Math.max(acc.expiringSoonCount, item.blockers.expiringSoonCount),
+      }),
+      { missingCount: 0, expiredCount: 0, expiringSoonCount: 0 }
+    );
+
+    return res.json({
+      documents,
+      expiry,
+      compliance: {
+        bidReadyScore,
+        readinessLabel: getReadinessLabel(bidReadyScore),
+        blockers: globalBlockers,
+        categoryGuides,
+      },
+    });
   } catch (error) {
     return res.status(500).json({ message: 'Failed to load documents.', error: error.message });
   }
