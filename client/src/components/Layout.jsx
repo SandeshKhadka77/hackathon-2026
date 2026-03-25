@@ -93,10 +93,6 @@ export const Layout = ({ children }) => {
           ) : null}
 
           <Link to="/" className="flex items-center gap-3">
-            <div className="rounded-xl border border-brand-200 bg-brand-50 px-3 py-2 text-[11px] font-black uppercase leading-tight tracking-wider text-brand-700">
-              <div>avasar</div>
-              <div>patra</div>
-            </div>
             <div>
               <h1 className="text-base font-bold">अवसर पत्र</h1>
               <p className="text-xs text-muted">Avasar Patra Workspace</p>
