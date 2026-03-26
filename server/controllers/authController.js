@@ -11,6 +11,13 @@ const normalizeEmail = (value = '') => String(value).trim().toLowerCase();
 
 const normalizeString = (value = '') => String(value || '').trim();
 
+const normalizePhone = (value = '') => String(value || '').replace(/[^\d+]/g, '').trim();
+
+const isValidContactPhone = (value = '') => {
+  const digitsOnly = String(value || '').replace(/\D/g, '');
+  return digitsOnly.length >= 10 && digitsOnly.length <= 15;
+};
+
 const validatePassword = (password = '') => {
   if (password.length < 8) {
     return 'Password must be at least 8 characters.';
@@ -37,6 +44,7 @@ const createToken = (user) =>
 const sanitizeUser = (user) => ({
   id: user._id,
   name: user.name,
+  contactPhone: user.contactPhone || '',
   email: user.email,
   district: user.district,
   category: user.category,
@@ -61,6 +69,7 @@ const register = async (req, res) => {
       name,
       email,
       password,
+      contactPhone,
       district,
       category,
       capacity,
@@ -70,13 +79,18 @@ const register = async (req, res) => {
     } = req.body;
 
     const normalizedName = normalizeString(name);
+    const normalizedContactPhone = normalizePhone(contactPhone);
     const normalizedEmail = normalizeEmail(email);
     const normalizedDistrict = normalizeString(district);
     const normalizedCategory = normalizeString(category);
     const numericCapacity = Number(capacity);
 
-    if (!normalizedName || !normalizedEmail || !password || !normalizedDistrict || !normalizedCategory || capacity == null) {
+    if (!normalizedName || !normalizedContactPhone || !normalizedEmail || !password || !normalizedDistrict || !normalizedCategory || capacity == null) {
       return res.status(400).json({ message: 'Missing required registration fields.' });
+    }
+
+    if (!isValidContactPhone(normalizedContactPhone)) {
+      return res.status(400).json({ message: 'Provide a valid primary contact number (10-15 digits).' });
     }
 
     if (!EMAIL_REGEX.test(normalizedEmail)) {
@@ -101,6 +115,7 @@ const register = async (req, res) => {
 
     const user = await User.create({
       name: normalizedName,
+      contactPhone: normalizedContactPhone,
       email: normalizedEmail,
       passwordHash,
       district: normalizedDistrict,
@@ -137,14 +152,19 @@ const registerOrganization = async (req, res) => {
       return res.status(503).json({ message: 'Database is not ready. Please try again.' });
     }
 
-    const { name, email, password, district, organizationType } = req.body;
+    const { name, email, password, contactPhone, district, organizationType } = req.body;
 
     const normalizedName = normalizeString(name);
+    const normalizedContactPhone = normalizePhone(contactPhone);
     const normalizedEmail = normalizeEmail(email);
     const normalizedDistrict = normalizeString(district || 'Kathmandu');
 
-    if (!normalizedName || !normalizedEmail || !password) {
-      return res.status(400).json({ message: 'Name, email and password are required.' });
+    if (!normalizedName || !normalizedContactPhone || !normalizedEmail || !password) {
+      return res.status(400).json({ message: 'Name, primary contact number, email and password are required.' });
+    }
+
+    if (!isValidContactPhone(normalizedContactPhone)) {
+      return res.status(400).json({ message: 'Provide a valid primary contact number (10-15 digits).' });
     }
 
     if (!EMAIL_REGEX.test(normalizedEmail)) {
@@ -165,6 +185,7 @@ const registerOrganization = async (req, res) => {
 
     const user = await User.create({
       name: normalizedName,
+      contactPhone: normalizedContactPhone,
       email: normalizedEmail,
       passwordHash,
       district: normalizedDistrict,

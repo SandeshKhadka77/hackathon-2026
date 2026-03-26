@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useState } from 'react';
+import { AlertTriangle, BadgeCheck, CheckCircle2, Info, XCircle } from 'lucide-react';
 import api from '../api/client';
 import { useAuth } from '../hooks/useAuth';
+import { calculateDocStatus, getNepaliFiscalYearFromExpiry } from '../utils/documentStatus';
 
 const docs = [
   { key: 'panVat', label: 'PAN/VAT Certificate' },
@@ -8,10 +10,34 @@ const docs = [
   { key: 'companyRegistration', label: 'Company Registration' },
 ];
 
+const badgeClassByVariant = {
+  success: 'border-emerald-200 bg-emerald-50 text-emerald-700',
+  warning: 'border-amber-200 bg-amber-50 text-amber-700',
+  destructive: 'border-rose-200 bg-rose-50 text-rose-700',
+  neutral: 'border-slate-200 bg-slate-50 text-slate-600',
+};
+
+const iconByVariant = {
+  success: CheckCircle2,
+  warning: AlertTriangle,
+  destructive: XCircle,
+  neutral: BadgeCheck,
+};
+
+const StatusBadge = ({ status }) => {
+  const Icon = iconByVariant[status.variant] || BadgeCheck;
+
+  return (
+    <span className={`inline-flex items-center gap-1 rounded-full border px-2 py-1 text-xs font-semibold ${badgeClassByVariant[status.variant] || badgeClassByVariant.neutral}`}>
+      <Icon size={12} />
+      {status.label}
+    </span>
+  );
+};
+
 export const VaultPage = () => {
   const { refreshUser } = useAuth();
   const [documents, setDocuments] = useState({});
-  const [expiry, setExpiry] = useState({});
   const [compliance, setCompliance] = useState({
     bidReadyScore: 0,
     readinessLabel: 'Critical gaps',
@@ -30,7 +56,6 @@ export const VaultPage = () => {
   const loadVault = useCallback(async () => {
     const response = await api.get('/documents');
     setDocuments(response.data.documents || {});
-    setExpiry(response.data.expiry || {});
     setCompliance(
       response.data.compliance || {
         bidReadyScore: 0,
@@ -163,20 +188,44 @@ export const VaultPage = () => {
         )}
       </article>
 
-      <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
         {docs.map((doc) => (
-          <article key={doc.key} className="card p-4">
-            <h3 className="text-base font-semibold">{doc.label}</h3>
-            <p className="mt-1 text-sm text-muted">{documents[doc.key]?.originalName || 'Not uploaded yet'}</p>
-            <p className="mt-2 text-xs text-slate-500">
-              {expiry[doc.key]?.isExpired
-                ? 'Expired'
-                : expiry[doc.key]?.isExpiringSoon
-                  ? `Expiring in ${expiry[doc.key]?.expiresInDays} day(s)`
-                  : expiry[doc.key]?.expiresInDays != null
-                    ? `Valid for ${expiry[doc.key]?.expiresInDays} day(s)`
-                    : 'No expiry date set'}
-            </p>
+          <article key={doc.key} className="card p-4 md:p-5">
+            <div className="flex items-start justify-between gap-2">
+              <div>
+                <h3 className="text-base font-semibold text-slate-900">{doc.label}</h3>
+                <p className="mt-1 text-sm text-muted">{documents[doc.key]?.originalName || 'Not uploaded yet'}</p>
+              </div>
+              {doc.key === 'panVat' ? (
+                <StatusBadge status={{ label: 'Last Verified', variant: 'neutral' }} />
+              ) : (
+                <StatusBadge status={calculateDocStatus(documents[doc.key]?.expiresAt || expiryInputs[doc.key])} />
+              )}
+            </div>
+
+            <div className="mt-3 rounded-xl border border-slate-200 bg-slate-50 p-3 text-xs text-slate-600">
+              {doc.key === 'panVat' ? (
+                <p>
+                  <span className="font-semibold text-slate-700">Last Verified:</span>{' '}
+                  {documents[doc.key]?.uploadedAt ? new Date(documents[doc.key].uploadedAt).toLocaleDateString() : 'Not verified yet'}
+                </p>
+              ) : doc.key === 'taxClearance' ? (
+                <div className="space-y-1">
+                  <p>
+                    <span className="font-semibold text-slate-700">Fiscal Year:</span> {getNepaliFiscalYearFromExpiry(documents[doc.key]?.expiresAt || expiryInputs[doc.key])}
+                  </p>
+                  <p className="flex items-center gap-1 text-slate-500">
+                    <Info size={12} />
+                    <span title="Valid until the next filing deadline (Mangsir end)">Valid until the next filing deadline (Mangsir end)</span>
+                  </p>
+                </div>
+              ) : (
+                <p>
+                  <span className="font-semibold text-slate-700">Expiry:</span>{' '}
+                  {documents[doc.key]?.expiresAt ? new Date(documents[doc.key].expiresAt).toLocaleDateString() : 'Not set'}
+                </p>
+              )}
+            </div>
 
             <div className="mt-3 space-y-3">
               <label>
@@ -184,12 +233,16 @@ export const VaultPage = () => {
                 <input className="input" type="file" accept=".pdf,.png,.jpg,.jpeg" onChange={(event) => upload(doc.key, event.target.files?.[0])} />
               </label>
 
-              <label>
-                <span className="label">Expiry Date</span>
-                <input className="input" type="date" value={expiryInputs[doc.key] || ''} onChange={(event) => setExpiryInputs((prev) => ({ ...prev, [doc.key]: event.target.value }))} />
-              </label>
+              {doc.key !== 'panVat' ? (
+                <>
+                  <label>
+                    <span className="label">Expiry Date</span>
+                    <input className="input" type="date" value={expiryInputs[doc.key] || ''} onChange={(event) => setExpiryInputs((prev) => ({ ...prev, [doc.key]: event.target.value }))} />
+                  </label>
 
-              <button type="button" className="btn-secondary" onClick={() => saveExpiry(doc.key)}>Save Expiry</button>
+                  <button type="button" className="btn-secondary" onClick={() => saveExpiry(doc.key)}>Save Expiry</button>
+                </>
+              ) : null}
             </div>
           </article>
         ))}

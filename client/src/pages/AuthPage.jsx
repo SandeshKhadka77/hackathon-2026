@@ -22,6 +22,7 @@ export const AuthPage = ({ mode = 'login' }) => {
 
   const [form, setForm] = useState({
     name: '',
+    contactPhone: '',
     email: '',
     password: '',
     district: '',
@@ -114,6 +115,7 @@ export const AuthPage = ({ mode = 'login' }) => {
         if (accountType === 'organization') {
           authenticatedUser = await registerOrganization({
             name: form.name,
+            contactPhone: form.contactPhone,
             email: form.email,
             password: form.password,
             district: form.district,
@@ -228,8 +230,15 @@ export const AuthPage = ({ mode = 'login' }) => {
 
         {isRegister && accountType === 'vendor' ? (
           <label>
-            <span className="label">Full Name</span>
+            <span className="label">Name</span>
             <input className="input" value={form.name} onChange={update('name')} required />
+          </label>
+        ) : null}
+
+        {isRegister ? (
+          <label>
+            <span className="label">Primary Contact Number (Tender Communication)</span>
+            <input className="input" type="tel" value={form.contactPhone} onChange={update('contactPhone')} placeholder="e.g. +9779800000000" required />
           </label>
         ) : null}
 
