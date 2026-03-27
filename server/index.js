@@ -22,6 +22,15 @@ const DIGEST_SCHEDULER_ENABLED = process.env.DIGEST_SCHEDULER_ENABLED !== 'false
 const DIGEST_SCHEDULER_INTERVAL_MS = Number(process.env.DIGEST_SCHEDULER_INTERVAL_MS || 60 * 60 * 1000);
 const SCRAPER_SCHEDULER_ENABLED = process.env.SCRAPER_SCHEDULER_ENABLED !== 'false';
 const SCRAPER_SCHEDULER_INTERVAL_MS = Number(process.env.SCRAPER_SCHEDULER_INTERVAL_MS || 6 * 60 * 60 * 1000);
+const NODE_ENV = process.env.NODE_ENV || 'development';
+const PORT = Number(process.env.PORT || 5000);
+const ENABLE_BACKGROUND_JOBS =
+    process.env.ENABLE_BACKGROUND_JOBS === 'true' || (NODE_ENV !== 'production' && process.env.ENABLE_BACKGROUND_JOBS !== 'false');
+
+const CLIENT_ORIGINS = (process.env.CLIENT_ORIGINS || '')
+    .split(',')
+    .map((origin) => origin.trim())
+    .filter(Boolean);
 
 let isScraperRunning = false;
 
@@ -59,7 +68,23 @@ const runDigestScheduler = async () => {
     }
 };
 
-app.use(cors());
+app.set('trust proxy', 1);
+app.use(
+    cors({
+        origin(origin, callback) {
+            // Allow non-browser clients and same-origin calls.
+            if (!origin) {
+                return callback(null, true);
+            }
+
+            if (CLIENT_ORIGINS.length === 0 || CLIENT_ORIGINS.includes(origin)) {
+                return callback(null, true);
+            }
+
+            return callback(new Error('CORS blocked for this origin'));
+        },
+    })
+);
 app.use(express.json());
 app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
 
@@ -84,7 +109,6 @@ app.use('/api/operations', operationsRoutes);
 app.use('/api/organization', organizationRoutes);
 app.use('/api/jv', jvRoutes);
 
-const PORT = 5000;
 const startServer = async () => {
     try {
         await mongoose.connect(MONGO_URI);
@@ -93,31 +117,35 @@ const startServer = async () => {
         app.listen(PORT, '0.0.0.0', () => {
             console.log(`Server is running on http://0.0.0.0:${PORT}`);
 
-            if (SCRAPER_SCHEDULER_ENABLED) {
-                // Initial delayed run warms data after startup; interval keeps tender feed fresh.
-                console.log(`[scraper-scheduler] enabled, interval=${SCRAPER_SCHEDULER_INTERVAL_MS}ms`);
-                setTimeout(() => {
-                    runScraperScheduler();
-                }, 20 * 1000);
-
-                setInterval(() => {
-                    runScraperScheduler();
-                }, SCRAPER_SCHEDULER_INTERVAL_MS);
+            if (!ENABLE_BACKGROUND_JOBS) {
+                console.log('[jobs] background jobs disabled for this instance');
             } else {
-                console.log('[scraper-scheduler] disabled via SCRAPER_SCHEDULER_ENABLED=false');
-            }
+                if (SCRAPER_SCHEDULER_ENABLED) {
+                    // Initial delayed run warms data after startup; interval keeps tender feed fresh.
+                    console.log(`[scraper-scheduler] enabled, interval=${SCRAPER_SCHEDULER_INTERVAL_MS}ms`);
+                    setTimeout(() => {
+                        runScraperScheduler();
+                    }, 20 * 1000);
 
-            if (DIGEST_SCHEDULER_ENABLED) {
-                console.log(`[digest-scheduler] enabled, interval=${DIGEST_SCHEDULER_INTERVAL_MS}ms`);
-                setTimeout(() => {
-                    runDigestScheduler();
-                }, 15 * 1000);
+                    setInterval(() => {
+                        runScraperScheduler();
+                    }, SCRAPER_SCHEDULER_INTERVAL_MS);
+                } else {
+                    console.log('[scraper-scheduler] disabled via SCRAPER_SCHEDULER_ENABLED=false');
+                }
 
-                setInterval(() => {
-                    runDigestScheduler();
-                }, DIGEST_SCHEDULER_INTERVAL_MS);
-            } else {
-                console.log('[digest-scheduler] disabled via DIGEST_SCHEDULER_ENABLED=false');
+                if (DIGEST_SCHEDULER_ENABLED) {
+                    console.log(`[digest-scheduler] enabled, interval=${DIGEST_SCHEDULER_INTERVAL_MS}ms`);
+                    setTimeout(() => {
+                        runDigestScheduler();
+                    }, 15 * 1000);
+
+                    setInterval(() => {
+                        runDigestScheduler();
+                    }, DIGEST_SCHEDULER_INTERVAL_MS);
+                } else {
+                    console.log('[digest-scheduler] disabled via DIGEST_SCHEDULER_ENABLED=false');
+                }
             }
         });
     } catch (error) {

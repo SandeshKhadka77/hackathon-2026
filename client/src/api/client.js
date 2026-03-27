@@ -21,7 +21,7 @@ api.interceptors.response.use(
   (response) => response,
   (error) => {
     if (error?.code === 'ERR_NETWORK' || /ECONNREFUSED|ERR_CONNECTION_REFUSED/i.test(error?.message || '')) {
-      error.userMessage = 'Backend server is not reachable. Start server on port 5000 and try again.';
+      error.userMessage = 'Backend server is not reachable. Verify API base URL and deployment health.';
     }
 
     return Promise.reject(error);
